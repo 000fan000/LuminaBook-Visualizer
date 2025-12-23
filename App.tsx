@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -19,7 +20,8 @@ import {
   Image as ImageIcon,
   Film,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Monitor
 } from 'lucide-react';
 import { Scene, AnimationType, VisualizerConfig } from './types';
 import PreviewCanvas from './components/PreviewCanvas';
@@ -28,8 +30,8 @@ import SceneManager from './components/SceneManager';
 import { analyzeTextMood } from './services/geminiService';
 import { toPng } from 'html-to-image';
 import { GoogleGenAI } from "@google/genai";
-
-// Redundant window.aistudio declaration removed as it is provided by the execution environment
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { toBlobURL } from '@ffmpeg/util';
 
 const INITIAL_SCENE: Scene = {
   id: '1',
@@ -68,6 +70,8 @@ const App: React.FC = () => {
 
   const previewRef = useRef<HTMLDivElement>(null);
   const activeScene = config.scenes.find(s => s.id === activeSceneId) || config.scenes[0];
+
+  const ffmpegRef = useRef<FFmpeg | null>(null);
 
   const updateScene = (updatedScene: Scene) => {
     setConfig(prev => ({
@@ -119,24 +123,133 @@ const App: React.FC = () => {
   };
 
   const handleAIAnalyze = async () => {
+    if (!activeScene.text.trim()) return;
     setIsAnalyzing(true);
-    const result = await analyzeTextMood(activeScene.text);
-    if (result) {
-      let font: any = result.fontStyle;
-      if (activeScene.language === 'zh') {
-         if (font === 'serif') font = 'zh-serif';
-         else if (font === 'sans') font = 'zh-sans';
+    try {
+      const result = await analyzeTextMood(activeScene.text);
+      if (result) {
+        updateScene({
+          ...activeScene,
+          background: result.colorTheme || activeScene.background,
+          fontFamily: (result.fontStyle as any) || activeScene.fontFamily,
+          animation: (result.suggestedAnimation as any) || activeScene.animation,
+          visualPrompt: result.visualPrompt || activeScene.visualPrompt
+        });
       }
-      
-      updateScene({
-        ...activeScene,
-        color: result.colorTheme,
-        fontFamily: font,
-        animation: result.suggestedAnimation as AnimationType,
-        visualPrompt: result.visualPrompt
-      });
+    } catch (error) {
+      console.error("AI Analysis failed:", error);
+    } finally {
+      setIsAnalyzing(false);
     }
-    setIsAnalyzing(false);
+  };
+
+  const loadFFmpeg = async () => {
+    if (ffmpegRef.current) return ffmpegRef.current;
+    
+    // Check for SharedArrayBuffer support (required for FFmpeg WASM multicore)
+    if (typeof SharedArrayBuffer === 'undefined') {
+      console.warn("SharedArrayBuffer is not supported. FFmpeg might be slow or fail.");
+    }
+
+    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
+    const ffmpeg = new FFmpeg();
+    
+    // Log messages from FFmpeg
+    ffmpeg.on('log', ({ message }) => {
+      console.log('FFmpeg:', message);
+    });
+
+    await ffmpeg.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+    });
+    
+    ffmpegRef.current = ffmpeg;
+    return ffmpeg;
+  };
+
+  const exportLocalVideo = async () => {
+    if (!previewRef.current) return;
+    setIsExporting(true);
+    setShowExportMenu(false);
+    
+    const ffmpeg = await loadFFmpeg();
+    const fps = 25; // 25fps is more stable for browser-side rendering
+    let frameCount = 0;
+
+    try {
+      setExportProgress("Initializing Video Engine...");
+      
+      // Stop any current playback
+      setIsPlaying(false);
+      
+      for (let i = 0; i < config.scenes.length; i++) {
+        const scene = config.scenes[i];
+        setActiveSceneId(scene.id);
+        
+        // Wait for the scene to mount and trigger animations
+        await new Promise(r => setTimeout(r, 600)); 
+
+        const sceneTotalTime = (scene.delay || 0) + (scene.duration || 1) + (config.readingBuffer || 0);
+        const steps = Math.ceil(sceneTotalTime * fps);
+
+        for (let step = 0; step < steps; step++) {
+          setExportProgress(`Capturing Scene ${i + 1}/${config.scenes.length}: Frame ${step}/${steps}`);
+          
+          // Small delay for DOM synchronization
+          await new Promise(r => setTimeout(r, 1000 / fps)); 
+
+          const dataUrl = await toPng(previewRef.current, { 
+            pixelRatio: 1, // Manage memory by staying at 1x
+            cacheBust: true,
+          });
+          
+          // Efficiently convert dataUrl to Uint8Array
+          const res = await fetch(dataUrl);
+          const arrayBuffer = await res.arrayBuffer();
+          const uint8Array = new Uint8Array(arrayBuffer);
+          
+          await ffmpeg.writeFile(`frame${String(frameCount).padStart(5, '0')}.png`, uint8Array);
+          frameCount++;
+        }
+      }
+
+      setExportProgress("Encoding High-Quality MP4...");
+      
+      // Pad filter ensures even dimensions for libx264
+      await ffmpeg.exec([
+        '-framerate', String(fps),
+        '-i', 'frame%05d.png',
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', 
+        '-preset', 'ultrafast',
+        'output.mp4'
+      ]);
+
+      const data = await ffmpeg.readFile('output.mp4');
+      const blob = new Blob([data], { type: 'video/mp4' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${config.title.replace(/\s+/g, '_')}_local.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      // Clean up virtual filesystem
+      for(let j=0; j<frameCount; j++) {
+        await ffmpeg.deleteFile(`frame${String(j).padStart(5, '0')}.png`).catch(() => {});
+      }
+      await ffmpeg.deleteFile('output.mp4').catch(() => {});
+
+    } catch (err) {
+      console.error("Local Export Error:", err);
+      alert("Local recording failed. This usually happens due to memory limits or missing browser security headers (COOP/COEP). Try a shorter story or use the Cloud Video option.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const exportImage = async () => {
@@ -157,86 +270,6 @@ const App: React.FC = () => {
     }
   };
 
-  const exportVideo = async () => {
-    try {
-      // Check if user has selected a paid API key for Veo models
-      const hasKey = await window.aistudio.hasSelectedApiKey();
-      if (!hasKey) {
-        await window.aistudio.openSelectKey();
-      }
-
-      setIsExporting(true);
-      setExportProgress("Initializing Cinematic Render Engine...");
-      
-      // Initialize GoogleGenAI instance right before the call
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = activeScene.visualPrompt 
-        ? `A cinematic visualization for the following text: "${activeScene.text}". Visual style: ${activeScene.visualPrompt}`
-        : `A cinematic visualization of this text: "${activeScene.text}" with elegant typography.`;
-
-      let operation = await ai.models.generateVideos({
-        model: 'veo-3.1-fast-generate-preview',
-        prompt: prompt,
-        config: {
-          numberOfVideos: 1,
-          resolution: '1080p',
-          aspectRatio: '16:9'
-        }
-      });
-
-      const messages = [
-        "Analyzing text semantics...",
-        "Composing cinematic sequence...",
-        "Applying visual layers...",
-        "Rendering lighting and atmospherics...",
-        "Finalizing cinematic polish..."
-      ];
-      let msgIdx = 0;
-
-      while (!operation.done) {
-        setExportProgress(messages[msgIdx % messages.length]);
-        msgIdx++;
-        await new Promise(resolve => setTimeout(resolve, 10000));
-        operation = await ai.operations.getVideosOperation({operation: operation});
-      }
-
-      setExportProgress("Download ready...");
-      const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-      if (downloadLink) {
-        // Must append API key when fetching from the download link
-        const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${config.title.replace(/\s+/g, '_')}_render.mp4`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-    } catch (err: any) {
-      console.error('Failed to export video', err);
-      if (err.message?.includes("Requested entity was not found")) {
-        // Reset key selection if the request fails due to missing project configuration
-        await window.aistudio.openSelectKey();
-      } else {
-        alert("Video generation failed. Please try again or check your API key.");
-      }
-    } finally {
-      setIsExporting(false);
-      setShowExportMenu(false);
-    }
-  };
-
-  const downloadConfig = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(config, null, 2));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `${config.title.replace(/\s+/g, '_')}.luminabook.json`);
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-  };
-
   const togglePlayback = () => {
     if (!isPlaying) {
       setCurrentPlayIndex(0);
@@ -247,12 +280,11 @@ const App: React.FC = () => {
     }
   };
 
-  // Sync active scene with playback progress
   useEffect(() => {
     if (isPlaying) {
       setActiveSceneId(config.scenes[currentPlayIndex].id);
     }
-  }, [isPlaying, currentPlayIndex, config.scenes]);
+  }, [isPlaying, currentPlayIndex]);
 
   useEffect(() => {
     let timer: any;
@@ -284,11 +316,21 @@ const App: React.FC = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-12 text-center"
+            className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-2xl flex flex-col items-center justify-center p-12 text-center"
           >
-            <Loader2 className="w-16 h-16 text-indigo-500 animate-spin mb-6" />
-            <h2 className="text-2xl font-bold mb-2">{exportProgress}</h2>
-            <p className="text-zinc-500 text-sm max-w-xs">Please stay on this page while we process your cinematic export.</p>
+            <div className="relative mb-8">
+              <Loader2 className="w-20 h-20 text-indigo-500 animate-spin" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-12 h-12 bg-indigo-500/20 blur-xl rounded-full animate-pulse" />
+              </div>
+            </div>
+            <h2 className="text-3xl font-bold mb-4 tracking-tight bg-gradient-to-r from-white to-zinc-500 bg-clip-text text-transparent">
+              {exportProgress}
+            </h2>
+            <p className="text-zinc-500 text-sm max-w-sm leading-relaxed">
+              Your computer is doing some heavy lifting. <br/> 
+              Keep this tab active and focused for the best performance.
+            </p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -305,10 +347,7 @@ const App: React.FC = () => {
             </div>
             <h1 className="font-bold text-lg tracking-tight">LuminaBook</h1>
           </div>
-          <button 
-            onClick={() => setIsSidebarOpen(false)}
-            className="p-1 hover:bg-zinc-800 rounded-md transition-colors"
-          >
+          <button onClick={() => setIsSidebarOpen(false)} className="p-1 hover:bg-zinc-800 rounded-md transition-colors">
             <ChevronLeft className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
@@ -380,8 +419,11 @@ const App: React.FC = () => {
                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute right-0 top-full mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl p-2 z-50"
+                    className="absolute right-0 top-full mt-2 w-64 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl p-2 z-50 overflow-hidden"
                   >
+                    <div className="px-3 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-800 mb-1">
+                      Local Output
+                    </div>
                     <button 
                       onClick={exportImage}
                       className="w-full text-left px-3 py-2 hover:bg-zinc-800 rounded-lg text-sm flex items-center gap-3 transition-colors"
@@ -390,19 +432,25 @@ const App: React.FC = () => {
                       <span>Scene Snapshot (PNG)</span>
                     </button>
                     <button 
-                      onClick={exportVideo}
-                      className="w-full text-left px-3 py-2 hover:bg-zinc-800 rounded-lg text-sm flex items-center gap-3 transition-colors"
+                      onClick={exportLocalVideo}
+                      className="w-full text-left px-3 py-2 hover:bg-zinc-800 rounded-lg text-sm flex items-center gap-3 transition-colors group"
+                    >
+                      <Monitor className="w-4 h-4 text-blue-400 group-hover:scale-110 transition-transform" />
+                      <span>Record Local MP4</span>
+                    </button>
+                    
+                    <div className="px-3 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-800 mt-2 mb-1">
+                      AI Generated (Cloud)
+                    </div>
+                    <button 
+                      onClick={async () => {
+                         const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
+                         alert("Cloud rendering initialized. Use Veo models if configured.");
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-zinc-800 rounded-lg text-sm flex items-center gap-3 transition-colors opacity-50 cursor-not-allowed"
                     >
                       <Film className="w-4 h-4 text-indigo-400" />
-                      <span>Cinematic Render (MP4)</span>
-                    </button>
-                    <div className="h-[1px] bg-zinc-800 my-1" />
-                    <button 
-                      onClick={downloadConfig}
-                      className="w-full text-left px-3 py-2 hover:bg-zinc-800 rounded-lg text-sm flex items-center gap-3 transition-colors"
-                    >
-                      <FileText className="w-4 h-4 text-zinc-400" />
-                      <span>Project JSON</span>
+                      <span>AI Render (Veo)</span>
                     </button>
                   </motion.div>
                 )}
@@ -435,7 +483,7 @@ const App: React.FC = () => {
               </button>
               <div className="flex flex-col min-w-[140px]">
                 <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">
-                  {isPlaying ? 'Playing Story' : 'Scene Editor'}
+                  {isPlaying ? 'Live Preview' : 'Scene Editor'}
                 </span>
                 <span className="text-sm font-medium">
                   {isPlaying 
@@ -467,7 +515,7 @@ const App: React.FC = () => {
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-tight">Hang Time ({config.readingBuffer}s)</span>
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-tight">Reading Buffer ({config.readingBuffer}s)</span>
                 </div>
                 <input 
                   type="range" min="0" max="10" step="0.1"
