@@ -28,10 +28,7 @@ import PreviewCanvas from './components/PreviewCanvas';
 import EditorPanel from './components/EditorPanel';
 import SceneManager from './components/SceneManager';
 import { analyzeTextMood } from './services/geminiService';
-import { toPng } from 'html-to-image';
-import { GoogleGenAI } from "@google/genai";
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { toBlobURL } from '@ffmpeg/util';
+import { toCanvas } from 'html-to-image';
 
 const INITIAL_SCENE: Scene = {
   id: '1',
@@ -70,8 +67,6 @@ const App: React.FC = () => {
 
   const previewRef = useRef<HTMLDivElement>(null);
   const activeScene = config.scenes.find(s => s.id === activeSceneId) || config.scenes[0];
-
-  const ffmpegRef = useRef<FFmpeg | null>(null);
 
   const updateScene = (updatedScene: Scene) => {
     setConfig(prev => ({
@@ -143,111 +138,80 @@ const App: React.FC = () => {
     }
   };
 
-  const loadFFmpeg = async () => {
-    if (ffmpegRef.current) return ffmpegRef.current;
-    
-    // Check for SharedArrayBuffer support (required for FFmpeg WASM multicore)
-    if (typeof SharedArrayBuffer === 'undefined') {
-      console.warn("SharedArrayBuffer is not supported. FFmpeg might be slow or fail.");
-    }
-
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-    const ffmpeg = new FFmpeg();
-    
-    // Log messages from FFmpeg
-    ffmpeg.on('log', ({ message }) => {
-      console.log('FFmpeg:', message);
-    });
-
-    await ffmpeg.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-    });
-    
-    ffmpegRef.current = ffmpeg;
-    return ffmpeg;
-  };
-
   const exportLocalVideo = async () => {
     if (!previewRef.current) return;
+    
     setIsExporting(true);
     setShowExportMenu(false);
+    setIsPlaying(false);
+
+    const width = 1024;
+    const height = 576;
+    const fps = 24; // Standard cinematic framerate
     
-    const ffmpeg = await loadFFmpeg();
-    const fps = 25; // 25fps is more stable for browser-side rendering
-    let frameCount = 0;
+    // Create recorder canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const stream = canvas.captureStream(fps);
+    const mediaRecorder = new MediaRecorder(stream, {
+      mimeType: 'video/webm;codecs=vp9',
+      videoBitsPerSecond: 8000000 // 8Mbps for high quality
+    });
+
+    const chunks: Blob[] = [];
+    mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(chunks, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${config.title.replace(/\s+/g, '_')}.webm`;
+      a.click();
+      setIsExporting(false);
+    };
+
+    mediaRecorder.start();
 
     try {
-      setExportProgress("Initializing Video Engine...");
-      
-      // Stop any current playback
-      setIsPlaying(false);
-      
       for (let i = 0; i < config.scenes.length; i++) {
         const scene = config.scenes[i];
         setActiveSceneId(scene.id);
         
-        // Wait for the scene to mount and trigger animations
-        await new Promise(r => setTimeout(r, 600)); 
+        // Wait for scene transition
+        setExportProgress(`Preparing Scene ${i + 1}...`);
+        await new Promise(r => setTimeout(r, 600));
 
         const sceneTotalTime = (scene.delay || 0) + (scene.duration || 1) + (config.readingBuffer || 0);
-        const steps = Math.ceil(sceneTotalTime * fps);
+        const totalFrames = Math.ceil(sceneTotalTime * fps);
 
-        for (let step = 0; step < steps; step++) {
-          setExportProgress(`Capturing Scene ${i + 1}/${config.scenes.length}: Frame ${step}/${steps}`);
+        for (let frame = 0; frame < totalFrames; frame++) {
+          setExportProgress(`Capturing Scene ${i + 1}/${config.scenes.length} (Frame ${frame}/${totalFrames})`);
           
-          // Small delay for DOM synchronization
-          await new Promise(r => setTimeout(r, 1000 / fps)); 
-
-          const dataUrl = await toPng(previewRef.current, { 
-            pixelRatio: 1, // Manage memory by staying at 1x
-            cacheBust: true,
+          // Use html-to-image's toCanvas for maximum speed/quality balance
+          const sceneCanvas = await toCanvas(previewRef.current, {
+            width: width,
+            height: height,
+            pixelRatio: 1
           });
+
+          ctx.clearRect(0, 0, width, height);
+          ctx.drawImage(sceneCanvas, 0, 0, width, height);
           
-          // Efficiently convert dataUrl to Uint8Array
-          const res = await fetch(dataUrl);
-          const arrayBuffer = await res.arrayBuffer();
-          const uint8Array = new Uint8Array(arrayBuffer);
-          
-          await ffmpeg.writeFile(`frame${String(frameCount).padStart(5, '0')}.png`, uint8Array);
-          frameCount++;
+          // Yield to let the browser process the stream
+          await new Promise(r => requestAnimationFrame(r));
         }
       }
 
-      setExportProgress("Encoding High-Quality MP4...");
-      
-      // Pad filter ensures even dimensions for libx264
-      await ffmpeg.exec([
-        '-framerate', String(fps),
-        '-i', 'frame%05d.png',
-        '-c:v', 'libx264',
-        '-pix_fmt', 'yuv420p',
-        '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', 
-        '-preset', 'ultrafast',
-        'output.mp4'
-      ]);
-
-      const data = await ffmpeg.readFile('output.mp4');
-      const blob = new Blob([data], { type: 'video/mp4' });
-      const url = URL.createObjectURL(blob);
-      
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${config.title.replace(/\s+/g, '_')}_local.mp4`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      
-      // Clean up virtual filesystem
-      for(let j=0; j<frameCount; j++) {
-        await ffmpeg.deleteFile(`frame${String(j).padStart(5, '0')}.png`).catch(() => {});
-      }
-      await ffmpeg.deleteFile('output.mp4').catch(() => {});
+      mediaRecorder.stop();
+      setExportProgress("Finalizing file...");
 
     } catch (err) {
-      console.error("Local Export Error:", err);
-      alert("Local recording failed. This usually happens due to memory limits or missing browser security headers (COOP/COEP). Try a shorter story or use the Cloud Video option.");
-    } finally {
+      console.error("Export Error:", err);
+      alert("Export failed. Please try with fewer scenes.");
       setIsExporting(false);
     }
   };
@@ -255,15 +219,16 @@ const App: React.FC = () => {
   const exportImage = async () => {
     if (!previewRef.current) return;
     setIsExporting(true);
-    setExportProgress("Generating high-resolution snapshot...");
+    setExportProgress("Snapshotting...");
     try {
-      const dataUrl = await toPng(previewRef.current, { cacheBust: true, pixelRatio: 2 });
+      const canvas = await toCanvas(previewRef.current, { pixelRatio: 2 });
+      const dataUrl = canvas.toDataURL('image/jpeg', 1.0);
       const link = document.createElement('a');
-      link.download = `LuminaBook_${activeSceneId}.png`;
+      link.download = `LuminaBook_${activeSceneId}.jpg`;
       link.href = dataUrl;
       link.click();
     } catch (err) {
-      console.error('Failed to export image', err);
+      console.error('Snapshot failed', err);
     } finally {
       setIsExporting(false);
       setShowExportMenu(false);
@@ -319,17 +284,16 @@ const App: React.FC = () => {
             className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-2xl flex flex-col items-center justify-center p-12 text-center"
           >
             <div className="relative mb-8">
-              <Loader2 className="w-20 h-20 text-indigo-500 animate-spin" />
+              <Loader2 className="w-16 h-16 text-indigo-500 animate-spin" />
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-12 h-12 bg-indigo-500/20 blur-xl rounded-full animate-pulse" />
+                <div className="w-10 h-10 bg-indigo-500/20 blur-xl rounded-full animate-pulse" />
               </div>
             </div>
-            <h2 className="text-3xl font-bold mb-4 tracking-tight bg-gradient-to-r from-white to-zinc-500 bg-clip-text text-transparent">
+            <h2 className="text-xl font-bold mb-2 tracking-tight text-white">
               {exportProgress}
             </h2>
-            <p className="text-zinc-500 text-sm max-w-sm leading-relaxed">
-              Your computer is doing some heavy lifting. <br/> 
-              Keep this tab active and focused for the best performance.
+            <p className="text-zinc-500 text-xs max-w-xs leading-relaxed">
+              Recording visual stream. Please keep this tab open and visible for the duration of the export.
             </p>
           </motion.div>
         )}
@@ -422,35 +386,21 @@ const App: React.FC = () => {
                     className="absolute right-0 top-full mt-2 w-64 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl p-2 z-50 overflow-hidden"
                   >
                     <div className="px-3 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-800 mb-1">
-                      Local Output
+                      Native Export
                     </div>
                     <button 
                       onClick={exportImage}
                       className="w-full text-left px-3 py-2 hover:bg-zinc-800 rounded-lg text-sm flex items-center gap-3 transition-colors"
                     >
                       <ImageIcon className="w-4 h-4 text-emerald-400" />
-                      <span>Scene Snapshot (PNG)</span>
+                      <span>Single Frame (JPG)</span>
                     </button>
                     <button 
                       onClick={exportLocalVideo}
                       className="w-full text-left px-3 py-2 hover:bg-zinc-800 rounded-lg text-sm flex items-center gap-3 transition-colors group"
                     >
                       <Monitor className="w-4 h-4 text-blue-400 group-hover:scale-110 transition-transform" />
-                      <span>Record Local MP4</span>
-                    </button>
-                    
-                    <div className="px-3 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-800 mt-2 mb-1">
-                      AI Generated (Cloud)
-                    </div>
-                    <button 
-                      onClick={async () => {
-                         const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
-                         alert("Cloud rendering initialized. Use Veo models if configured.");
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-zinc-800 rounded-lg text-sm flex items-center gap-3 transition-colors opacity-50 cursor-not-allowed"
-                    >
-                      <Film className="w-4 h-4 text-indigo-400" />
-                      <span>AI Render (Veo)</span>
+                      <span>Record to WebM</span>
                     </button>
                   </motion.div>
                 )}
@@ -464,7 +414,8 @@ const App: React.FC = () => {
             <div className="flex-1 flex items-center justify-center p-12 overflow-hidden">
               <div 
                 ref={previewRef}
-                className="w-full h-full max-w-5xl aspect-video rounded-3xl overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.5)] border border-white/5 relative bg-black"
+                className="w-[1024px] h-[576px] rounded-3xl overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.5)] border border-white/5 relative bg-black"
+                style={{ width: '1024px', height: '576px' }}
               >
                 <PreviewCanvas 
                   scene={activeScene} 
