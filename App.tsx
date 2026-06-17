@@ -76,6 +76,7 @@ const STORAGE_KEYS = {
 
 type TextAlignment = 'left' | 'center' | 'justify';
 type TextFont = 'serif' | 'sans' | 'mono';
+type RightPaneMode = 'translation' | 'notes' | 'annotation';
 
 interface ReadingTheme {
   id: string;
@@ -160,7 +161,7 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<LlmSettings>(DEFAULT_SETTINGS);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
   const [translatedSegmentsByBook, setTranslatedSegmentsByBook] = useState<Record<string, Record<string, TranslatedSegment>>>({});
-  const [rightPaneMode, setRightPaneMode] = useState<'translation' | 'notes'>('translation');
+  const [rightPaneMode, setRightPaneMode] = useState<RightPaneMode>('translation');
   const [hoveredNoteSourceText, setHoveredNoteSourceText] = useState('');
   const [customReadingThemes, setCustomReadingThemes] = useState<ReadingTheme[]>(() =>
     readStorage<ReadingTheme[]>(STORAGE_KEYS.customThemes, []),
@@ -1036,8 +1037,8 @@ interface ReaderViewProps {
   onToggleBookmark: () => void;
   onAddHighlight: (pageSide: Highlight['pageSide']) => void;
   onCreateKnowledgeCard: (pageSide: Highlight['pageSide']) => void;
-  rightPaneMode: 'translation' | 'notes';
-  onRightPaneModeChange: (mode: 'translation' | 'notes') => void;
+  rightPaneMode: RightPaneMode;
+  onRightPaneModeChange: (mode: RightPaneMode) => void;
   hoveredNoteSourceText: string;
   onHoverNoteSource: (text: string) => void;
   onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
@@ -1321,12 +1322,12 @@ const BookPage: React.FC<BookPageProps> = ({
   muted,
 }) => (
   <article className="flex min-h-[680px] flex-col rounded-sm border border-stone-300 bg-[#fffdf8] px-7 py-6 shadow-[0_18px_60px_rgba(68,54,34,0.13)] md:px-10">
-    <div className="mb-6 flex items-center justify-between gap-3 border-b border-stone-200 pb-4">
+    <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-4">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">{eyebrow}</p>
         <h2 className="mt-1 text-sm font-medium text-stone-700">{title}</h2>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <button
           onClick={onAddHighlight}
           className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
@@ -1403,12 +1404,12 @@ interface RightReaderPaneProps {
   sourceText: string;
   readingTheme: ReadingTheme;
   readingThemes: ReadingTheme[];
-  mode: 'translation' | 'notes';
+  mode: RightPaneMode;
   note: ReaderNote | null;
   pageNumber: number;
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
-  onModeChange: (mode: 'translation' | 'notes') => void;
+  onModeChange: (mode: RightPaneMode) => void;
   onHoverNoteSource: (text: string) => void;
   onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
   onApplyTheme: (themeId: string) => void;
@@ -1456,15 +1457,21 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
     <div className="mb-6 flex items-center justify-between gap-3 border-b border-stone-200 pb-4">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
-          {mode === 'translation' ? `Translation · ${motherLanguage}` : 'Notes'}
+          {mode === 'translation' ? `Translation · ${motherLanguage}` : mode === 'notes' ? 'Notes' : 'Annotation'}
         </p>
         <h2 className="mt-1 text-sm font-medium text-stone-700">
-          {mode === 'translation' ? (activeTranslation ? 'Generated translation' : 'Waiting for translation') : 'Reader notebook'}
+          {mode === 'translation'
+            ? activeTranslation
+              ? 'Generated translation'
+              : 'Waiting for translation'
+            : mode === 'notes'
+              ? 'Reader notebook'
+              : 'Translation notes and reader marks'}
         </h2>
       </div>
       <div className="flex items-center gap-2">
         <div className="flex rounded-md border border-stone-300 bg-[#f7f3ea] p-1">
-          {(['translation', 'notes'] as const).map((item) => (
+          {(['translation', 'notes', 'annotation'] as const).map((item) => (
             <button
               key={item}
               onClick={() => onModeChange(item)}
@@ -1472,7 +1479,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
                 mode === item ? 'bg-stone-950 text-white' : 'text-stone-600 hover:bg-stone-200'
               }`}
             >
-              {item}
+              {item === 'annotation' ? 'Annotation' : item}
             </button>
           ))}
         </div>
@@ -1521,42 +1528,8 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
             onSaveTheme={onSaveTheme}
           />
         )}
-        <div className="mt-6 min-h-24 border-t border-stone-200 pt-4">
-          {highlights.length > 0 && (
-            <div className="mb-4 space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Highlights</p>
-              {highlights.map((highlight) => (
-                <p key={highlight.id} className="rounded-sm bg-yellow-100 px-2 py-1 text-xs leading-5 text-stone-700">
-                  {highlight.text}
-                </p>
-              ))}
-            </div>
-          )}
-          {knowledgeCards.length > 0 && (
-            <div className="mb-4 space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Knowledge Cards</p>
-              {knowledgeCards.map((card) => (
-                <p key={card.id} className="rounded-sm border border-stone-200 bg-white px-2 py-1 text-xs leading-5 text-stone-700">
-                  {card.excerpt}
-                </p>
-              ))}
-            </div>
-          )}
-          {activeTranslation ? (
-            <ol className="space-y-2 text-xs leading-5 text-stone-600">
-              {buildTranslationNotes(activeTranslation).map((item, index) => (
-                <li key={`${item}-${index}`} className="grid grid-cols-[24px_1fr] gap-2">
-                  <span className="text-stone-400">{index + 1}</span>
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="text-xs italic text-stone-400">No translation notes yet.</p>
-          )}
-        </div>
       </>
-    ) : (
+    ) : mode === 'notes' ? (
       <div className="flex flex-1 flex-col">
         <textarea
           value={note?.body || ''}
@@ -1574,20 +1547,99 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
             LLM Respond
           </button>
         </div>
-        {note?.llmResponse && (
-          <div className="mt-5 rounded-sm border border-stone-300 bg-white p-4 text-sm leading-6 text-stone-700">
-            <HoverableLlmResponse
-              text={note.llmResponse}
-              anchors={noteAnchors}
-              onHoverSource={onHoverNoteSource}
-            />
-          </div>
-        )}
       </div>
+    ) : (
+      <AnnotationView
+        activeTranslation={activeTranslation}
+        highlights={highlights}
+        knowledgeCards={knowledgeCards}
+        noteResponse={note?.llmResponse || ''}
+        noteAnchors={noteAnchors}
+        onHoverNoteSource={onHoverNoteSource}
+      />
     )}
     </article>
   );
 };
+
+interface AnnotationViewProps {
+  activeTranslation: TranslatedSegment | null;
+  highlights: Highlight[];
+  knowledgeCards: KnowledgeCard[];
+  noteResponse: string;
+  noteAnchors: HoverAnchor[];
+  onHoverNoteSource: (text: string) => void;
+}
+
+const AnnotationView: React.FC<AnnotationViewProps> = ({
+  activeTranslation,
+  highlights,
+  knowledgeCards,
+  noteResponse,
+  noteAnchors,
+  onHoverNoteSource,
+}) => (
+  <div className="flex-1 overflow-y-auto">
+    <div className="space-y-5">
+      <section>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Translation Notes</p>
+        {activeTranslation ? (
+          <ol className="mt-3 space-y-3 text-sm leading-6 text-stone-700">
+            {buildTranslationNotes(activeTranslation).map((item, index) => (
+              <li key={`${item}-${index}`} className="grid grid-cols-[24px_1fr] gap-2">
+                <span className="text-stone-400">{index + 1}</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-3 text-sm italic text-stone-400">No translation notes yet.</p>
+        )}
+      </section>
+
+      <section className="border-t border-stone-200 pt-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Highlights</p>
+        {highlights.length > 0 ? (
+          <div className="mt-3 space-y-2">
+            {highlights.map((highlight) => (
+              <p key={highlight.id} className="rounded-sm bg-yellow-100 px-2 py-1 text-xs leading-5 text-stone-700">
+                {highlight.text}
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm italic text-stone-400">No translation highlights on this page.</p>
+        )}
+      </section>
+
+      <section className="border-t border-stone-200 pt-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Knowledge Cards</p>
+        {knowledgeCards.length > 0 ? (
+          <div className="mt-3 space-y-2">
+            {knowledgeCards.map((card) => (
+              <p key={card.id} className="rounded-sm border border-stone-200 bg-white px-2 py-1 text-xs leading-5 text-stone-700">
+                {card.excerpt}
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm italic text-stone-400">No translation knowledge cards on this page.</p>
+        )}
+      </section>
+
+      <section className="border-t border-stone-200 pt-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">LLM Note Response</p>
+        {noteResponse ? (
+          <div className="mt-3 rounded-sm border border-stone-300 bg-white p-4 text-sm leading-6 text-stone-700">
+            <HoverableLlmResponse text={noteResponse} anchors={noteAnchors} onHoverSource={onHoverNoteSource} />
+          </div>
+        ) : (
+          <p className="mt-3 text-sm italic text-stone-400">No LLM response yet.</p>
+        )}
+      </section>
+    </div>
+  </div>
+);
 
 interface PdfCanvasPageProps {
   source: string | ArrayBuffer;
