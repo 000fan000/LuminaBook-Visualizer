@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Bookmark as BookmarkIcon,
   BookOpen,
+  Check,
   FileText,
   CheckCircle2,
   ChevronLeft,
@@ -14,6 +15,7 @@ import {
   Library,
   Loader2,
   Play,
+  Plus,
   Settings2,
   Sparkles,
   Upload,
@@ -68,7 +70,71 @@ const STORAGE_KEYS = {
   cards: 'luminabook.knowledgeCards',
   notes: 'luminabook.notes',
   progress: 'luminabook.progress',
+  readingTheme: 'luminabook.readingTheme',
+  customThemes: 'luminabook.customReadingThemes',
 };
+
+type TextAlignment = 'left' | 'center' | 'justify';
+type TextFont = 'serif' | 'sans' | 'mono';
+
+interface ReadingTheme {
+  id: string;
+  name: string;
+  font: TextFont;
+  fontSize: number;
+  lineHeight: number;
+  paragraphSpacing: number;
+  textAlign: TextAlignment;
+  background: string;
+  textColor: string;
+}
+
+const DEFAULT_READING_THEMES: ReadingTheme[] = [
+  {
+    id: 'classic',
+    name: 'Classic',
+    font: 'serif',
+    fontSize: 18,
+    lineHeight: 1.85,
+    paragraphSpacing: 16,
+    textAlign: 'left',
+    background: '#fffdf8',
+    textColor: '#1c1917',
+  },
+  {
+    id: 'paper',
+    name: 'Paper',
+    font: 'serif',
+    fontSize: 19,
+    lineHeight: 1.95,
+    paragraphSpacing: 18,
+    textAlign: 'justify',
+    background: '#f7f1e3',
+    textColor: '#292524',
+  },
+  {
+    id: 'focus',
+    name: 'Focus',
+    font: 'sans',
+    fontSize: 17,
+    lineHeight: 1.75,
+    paragraphSpacing: 14,
+    textAlign: 'left',
+    background: '#f8fafc',
+    textColor: '#111827',
+  },
+  {
+    id: 'night',
+    name: 'Night',
+    font: 'serif',
+    fontSize: 18,
+    lineHeight: 1.9,
+    paragraphSpacing: 16,
+    textAlign: 'left',
+    background: '#1f1d1b',
+    textColor: '#f5efe6',
+  },
+];
 
 const readStorage = <T,>(key: string, fallback: T): T => {
   try {
@@ -95,6 +161,13 @@ const App: React.FC = () => {
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
   const [translatedSegmentsByBook, setTranslatedSegmentsByBook] = useState<Record<string, Record<string, TranslatedSegment>>>({});
   const [rightPaneMode, setRightPaneMode] = useState<'translation' | 'notes'>('translation');
+  const [hoveredNoteSourceText, setHoveredNoteSourceText] = useState('');
+  const [customReadingThemes, setCustomReadingThemes] = useState<ReadingTheme[]>(() =>
+    readStorage<ReadingTheme[]>(STORAGE_KEYS.customThemes, []),
+  );
+  const [readingTheme, setReadingTheme] = useState<ReadingTheme>(() =>
+    readStorage<ReadingTheme>(STORAGE_KEYS.readingTheme, DEFAULT_READING_THEMES[0]),
+  );
   const [isParsing, setIsParsing] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isRespondingToNote, setIsRespondingToNote] = useState(false);
@@ -148,6 +221,37 @@ const App: React.FC = () => {
 
   const updateSettings = <K extends keyof LlmSettings>(key: K, value: LlmSettings[K]) => {
     setSettings((current) => ({ ...current, [key]: value }));
+  };
+
+  const readingThemes = useMemo(() => [...DEFAULT_READING_THEMES, ...customReadingThemes], [customReadingThemes]);
+
+  const updateReadingTheme = <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => {
+    setReadingTheme((current) => ({
+      ...current,
+      id: 'custom-draft',
+      name: current.id === 'custom-draft' ? current.name : 'Custom',
+      [key]: value,
+    }));
+  };
+
+  const applyReadingTheme = (themeId: string) => {
+    const theme = readingThemes.find((item) => item.id === themeId);
+
+    if (theme) {
+      setReadingTheme(theme);
+    }
+  };
+
+  const saveCurrentReadingTheme = () => {
+    const next: ReadingTheme = {
+      ...readingTheme,
+      id: `custom-${Date.now()}`,
+      name: `Theme ${customReadingThemes.length + 1}`,
+    };
+
+    setCustomReadingThemes((current) => [...current, next].slice(-8));
+    setReadingTheme(next);
+    setStatusMessage(`${next.name} saved.`);
   };
 
   const applyProvider = (providerId: string) => {
@@ -246,6 +350,14 @@ const App: React.FC = () => {
   useEffect(() => {
     writeStorage(STORAGE_KEYS.progress, readingProgress);
   }, [readingProgress]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.readingTheme, readingTheme);
+  }, [readingTheme]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.customThemes, customReadingThemes);
+  }, [customReadingThemes]);
 
   useEffect(() => {
     if (!book) {
@@ -579,6 +691,8 @@ const App: React.FC = () => {
         activeSegmentIndex={activeSegmentIndex}
         activeSegment={activeSegment}
         activeTranslation={activeTranslation || null}
+        readingTheme={readingTheme}
+        readingThemes={readingThemes}
         progress={progress}
         isTranslating={isTranslating}
         statusMessage={statusMessage}
@@ -596,6 +710,11 @@ const App: React.FC = () => {
         onCreateKnowledgeCard={createKnowledgeCard}
         rightPaneMode={rightPaneMode}
         onRightPaneModeChange={setRightPaneMode}
+        hoveredNoteSourceText={hoveredNoteSourceText}
+        onHoverNoteSource={setHoveredNoteSourceText}
+        onThemeChange={updateReadingTheme}
+        onApplyTheme={applyReadingTheme}
+        onSaveTheme={saveCurrentReadingTheme}
         note={activeNote}
         onNoteChange={updateActiveNote}
         onRespondToNote={respondToNote}
@@ -900,6 +1019,8 @@ interface ReaderViewProps {
   activeSegmentIndex: number;
   activeSegment: UploadedBook['segments'][number];
   activeTranslation: TranslatedSegment | null;
+  readingTheme: ReadingTheme;
+  readingThemes: ReadingTheme[];
   progress: number;
   isTranslating: boolean;
   statusMessage: string;
@@ -917,6 +1038,11 @@ interface ReaderViewProps {
   onCreateKnowledgeCard: (pageSide: Highlight['pageSide']) => void;
   rightPaneMode: 'translation' | 'notes';
   onRightPaneModeChange: (mode: 'translation' | 'notes') => void;
+  hoveredNoteSourceText: string;
+  onHoverNoteSource: (text: string) => void;
+  onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
+  onApplyTheme: (themeId: string) => void;
+  onSaveTheme: () => void;
   note: ReaderNote | null;
   onNoteChange: (body: string) => void;
   onRespondToNote: () => void;
@@ -929,6 +1055,8 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   activeSegmentIndex,
   activeSegment,
   activeTranslation,
+  readingTheme,
+  readingThemes,
   progress,
   isTranslating,
   statusMessage,
@@ -946,6 +1074,11 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   onCreateKnowledgeCard,
   rightPaneMode,
   onRightPaneModeChange,
+  hoveredNoteSourceText,
+  onHoverNoteSource,
+  onThemeChange,
+  onApplyTheme,
+  onSaveTheme,
   note,
   onNoteChange,
   onRespondToNote,
@@ -998,18 +1131,26 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             pdfPage={activeSegment.firstPage}
             highlights={highlights.filter((highlight) => highlight.pageSide === 'original')}
             knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'original')}
+            hoverHighlightText={hoveredNoteSourceText}
             onAddHighlight={() => onAddHighlight('original')}
             onCreateKnowledgeCard={() => onCreateKnowledgeCard('original')}
           />
           <RightReaderPane
             motherLanguage={motherLanguage}
             activeTranslation={activeTranslation}
+            sourceText={activeSegment.sourceText}
+            readingTheme={readingTheme}
+            readingThemes={readingThemes}
             mode={rightPaneMode}
             note={note}
             pageNumber={activeSegmentIndex * 2 + 2}
             highlights={highlights.filter((highlight) => highlight.pageSide === 'translation')}
             knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'translation')}
             onModeChange={onRightPaneModeChange}
+            onHoverNoteSource={onHoverNoteSource}
+            onThemeChange={onThemeChange}
+            onApplyTheme={onApplyTheme}
+            onSaveTheme={onSaveTheme}
             onAddHighlight={() => onAddHighlight('translation')}
             onCreateKnowledgeCard={() => onCreateKnowledgeCard('translation')}
             onNoteChange={onNoteChange}
@@ -1157,6 +1298,7 @@ interface BookPageProps {
   pdfPage?: number;
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
+  hoverHighlightText?: string;
   onAddHighlight: () => void;
   onCreateKnowledgeCard: () => void;
   muted?: boolean;
@@ -1173,6 +1315,7 @@ const BookPage: React.FC<BookPageProps> = ({
   pdfPage,
   highlights,
   knowledgeCards,
+  hoverHighlightText = '',
   onAddHighlight,
   onCreateKnowledgeCard,
   muted,
@@ -1204,10 +1347,15 @@ const BookPage: React.FC<BookPageProps> = ({
 
     {pdfUrl ? (
       <div className="flex-1 overflow-auto rounded-sm border border-stone-200 bg-stone-100 p-3">
+        {hoverHighlightText && (
+          <div className="mb-3 rounded-sm border border-amber-300 bg-amber-100 px-3 py-2 text-sm leading-6 text-amber-950 shadow-sm">
+            {hoverHighlightText}
+          </div>
+        )}
         <PdfCanvasPage source={pdfData || pdfUrl} pageNumber={pdfPage || 1} />
       </div>
     ) : (
-      <FormattedReadingText text={body} muted={muted} />
+      <FormattedReadingText text={body} muted={muted} hoverHighlightText={hoverHighlightText} />
     )}
 
     <div className="mt-6 min-h-24 border-t border-stone-200 pt-4">
@@ -1252,12 +1400,19 @@ const BookPage: React.FC<BookPageProps> = ({
 interface RightReaderPaneProps {
   motherLanguage: string;
   activeTranslation: TranslatedSegment | null;
+  sourceText: string;
+  readingTheme: ReadingTheme;
+  readingThemes: ReadingTheme[];
   mode: 'translation' | 'notes';
   note: ReaderNote | null;
   pageNumber: number;
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
   onModeChange: (mode: 'translation' | 'notes') => void;
+  onHoverNoteSource: (text: string) => void;
+  onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
+  onApplyTheme: (themeId: string) => void;
+  onSaveTheme: () => void;
   onAddHighlight: () => void;
   onCreateKnowledgeCard: () => void;
   onNoteChange: (body: string) => void;
@@ -1268,19 +1423,36 @@ interface RightReaderPaneProps {
 const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   motherLanguage,
   activeTranslation,
+  sourceText,
+  readingTheme,
+  readingThemes,
   mode,
   note,
   pageNumber,
   highlights,
   knowledgeCards,
   onModeChange,
+  onHoverNoteSource,
+  onThemeChange,
+  onApplyTheme,
+  onSaveTheme,
   onAddHighlight,
   onCreateKnowledgeCard,
   onNoteChange,
   onRespondToNote,
   isRespondingToNote,
-}) => (
-  <article className="flex min-h-[680px] flex-col rounded-sm border border-stone-300 bg-[#fffdf8] px-7 py-6 shadow-[0_18px_60px_rgba(68,54,34,0.13)] md:px-10">
+}) => {
+  const [isFormatOpen, setIsFormatOpen] = useState(false);
+  const noteAnchors = useMemo(
+    () => buildNoteHoverAnchors(note?.llmResponse || '', sourceText),
+    [note?.llmResponse, sourceText],
+  );
+
+  return (
+    <article
+      className="relative flex min-h-[680px] flex-col rounded-sm border border-stone-300 px-7 py-6 shadow-[0_18px_60px_rgba(68,54,34,0.13)] md:px-10"
+      style={mode === 'translation' ? { backgroundColor: readingTheme.background, color: readingTheme.textColor } : { backgroundColor: '#fffdf8' }}
+    >
     <div className="mb-6 flex items-center justify-between gap-3 border-b border-stone-200 pb-4">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
@@ -1320,6 +1492,13 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
             >
               <FileText className="h-4 w-4" />
             </button>
+            <button
+              onClick={() => setIsFormatOpen((current) => !current)}
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
+              title="Tune translation text format"
+            >
+              <BookOpen className="h-4 w-4" />
+            </button>
           </>
         )}
         <span className="text-xs text-stone-400">{pageNumber}</span>
@@ -1331,7 +1510,17 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
         <FormattedReadingText
           text={activeTranslation?.translatedText || 'Use Translate to create the facing page for this section.'}
           muted={!activeTranslation}
+          theme={readingTheme}
         />
+        {isFormatOpen && (
+          <ReadingThemePopover
+            theme={readingTheme}
+            themes={readingThemes}
+            onThemeChange={onThemeChange}
+            onApplyTheme={onApplyTheme}
+            onSaveTheme={onSaveTheme}
+          />
+        )}
         <div className="mt-6 min-h-24 border-t border-stone-200 pt-4">
           {highlights.length > 0 && (
             <div className="mb-4 space-y-2">
@@ -1386,14 +1575,19 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
           </button>
         </div>
         {note?.llmResponse && (
-          <div className="mt-5 whitespace-pre-wrap rounded-sm border border-stone-300 bg-white p-4 text-sm leading-6 text-stone-700">
-            {note.llmResponse}
+          <div className="mt-5 rounded-sm border border-stone-300 bg-white p-4 text-sm leading-6 text-stone-700">
+            <HoverableLlmResponse
+              text={note.llmResponse}
+              anchors={noteAnchors}
+              onHoverSource={onHoverNoteSource}
+            />
           </div>
         )}
       </div>
     )}
-  </article>
-);
+    </article>
+  );
+};
 
 interface PdfCanvasPageProps {
   source: string | ArrayBuffer;
@@ -1545,16 +1739,33 @@ const StatusMessage: React.FC<StatusMessageProps> = ({ statusMessage, errorMessa
 interface FormattedReadingTextProps {
   text: string;
   muted?: boolean;
+  theme?: ReadingTheme;
+  hoverHighlightText?: string;
 }
 
-const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({ text, muted }) => {
+const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({ text, muted, theme, hoverHighlightText = '' }) => {
   const lines = text.replace(/\r/g, '').split('\n');
+  const fontClass =
+    theme?.font === 'mono'
+      ? 'font-mono'
+      : theme?.font === 'sans'
+        ? 'font-sans'
+        : 'font-serif';
+  const textStyle = theme
+    ? {
+        color: muted ? '#a8a29e' : theme.textColor,
+        fontSize: `${theme.fontSize}px`,
+        lineHeight: theme.lineHeight,
+        textAlign: theme.textAlign,
+      }
+    : undefined;
 
   return (
     <div
-      className={`flex-1 overflow-y-auto whitespace-pre-wrap text-[1.08rem] leading-8 md:text-[1.16rem] md:leading-9 ${
+      className={`flex-1 overflow-y-auto whitespace-pre-wrap text-[1.08rem] leading-8 md:text-[1.16rem] md:leading-9 ${fontClass} ${
         muted ? 'text-stone-400' : 'text-stone-900'
       }`}
+      style={textStyle}
     >
       {lines.map((line, index) => {
         const trimmed = line.trim();
@@ -1567,25 +1778,302 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({ text, muted
           !/[.!?,;:，。！？；：]$/.test(trimmed);
 
         if (!trimmed) {
-          return <div key={`blank-${index}`} className="h-4" />;
+          return <div key={`blank-${index}`} style={{ height: theme ? `${theme.paragraphSpacing}px` : undefined }} className="h-4" />;
         }
 
         if (isHeading) {
           return (
-            <div key={`${line}-${index}`} className="mb-3 mt-5 text-center text-[1.18rem] font-semibold leading-8 text-stone-950">
-              {line}
+            <div
+              key={`${line}-${index}`}
+              className="mb-3 mt-5 text-center text-[1.18rem] font-semibold leading-8"
+              style={theme ? { color: theme.textColor } : undefined}
+            >
+              <HighlightedLine line={line} phrase={hoverHighlightText} />
             </div>
           );
         }
 
         return (
           <div key={`${line}-${index}`} className="min-h-8">
-            {line}
+            <HighlightedLine line={line} phrase={hoverHighlightText} />
           </div>
         );
       })}
     </div>
   );
+};
+
+interface HighlightedLineProps {
+  line: string;
+  phrase: string;
+}
+
+const HighlightedLine: React.FC<HighlightedLineProps> = ({ line, phrase }) => {
+  const normalizedPhrase = phrase.trim();
+
+  if (!normalizedPhrase || normalizedPhrase.length < 3) {
+    return <>{line}</>;
+  }
+
+  const index = line.toLocaleLowerCase().indexOf(normalizedPhrase.toLocaleLowerCase());
+
+  if (index === -1) {
+    return <>{line}</>;
+  }
+
+  return (
+    <>
+      {line.slice(0, index)}
+      <mark className="rounded-sm bg-amber-200 px-0.5 text-stone-950 shadow-[0_0_0_2px_rgba(251,191,36,0.28)]">
+        {line.slice(index, index + normalizedPhrase.length)}
+      </mark>
+      {line.slice(index + normalizedPhrase.length)}
+    </>
+  );
+};
+
+interface ReadingThemePopoverProps {
+  theme: ReadingTheme;
+  themes: ReadingTheme[];
+  onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
+  onApplyTheme: (themeId: string) => void;
+  onSaveTheme: () => void;
+}
+
+const ReadingThemePopover: React.FC<ReadingThemePopoverProps> = ({
+  theme,
+  themes,
+  onThemeChange,
+  onApplyTheme,
+  onSaveTheme,
+}) => (
+  <div className="absolute right-6 top-20 z-30 w-80 rounded-md border border-stone-300 bg-[#fffdf8] p-4 text-stone-900 shadow-2xl">
+    <div className="mb-4 flex items-center justify-between gap-3">
+      <div>
+        <p className="text-sm font-semibold">Translation Format</p>
+        <p className="text-xs text-stone-500">Tune the facing page.</p>
+      </div>
+      <button
+        onClick={onSaveTheme}
+        className="flex h-8 items-center gap-1 rounded-md border border-stone-300 px-2 text-xs font-medium hover:bg-stone-100"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Save
+      </button>
+    </div>
+
+    <div className="grid grid-cols-2 gap-2">
+      {themes.map((item) => (
+        <button
+          key={item.id}
+          onClick={() => onApplyTheme(item.id)}
+          className={`flex items-center justify-between rounded-md border px-3 py-2 text-left text-xs ${
+            item.id === theme.id ? 'border-stone-950 bg-stone-100' : 'border-stone-200 hover:bg-stone-50'
+          }`}
+        >
+          <span>{item.name}</span>
+          {item.id === theme.id && <Check className="h-3.5 w-3.5" />}
+        </button>
+      ))}
+    </div>
+
+    <div className="mt-4 space-y-3">
+      <label className="block text-xs font-medium text-stone-600">
+        Font
+        <select
+          value={theme.font}
+          onChange={(event) => onThemeChange('font', event.target.value as TextFont)}
+          className="mt-1 h-9 w-full rounded-md border border-stone-300 bg-white px-2 text-sm"
+        >
+          <option value="serif">Serif</option>
+          <option value="sans">Sans</option>
+          <option value="mono">Mono</option>
+        </select>
+      </label>
+
+      <label className="block text-xs font-medium text-stone-600">
+        Alignment
+        <select
+          value={theme.textAlign}
+          onChange={(event) => onThemeChange('textAlign', event.target.value as TextAlignment)}
+          className="mt-1 h-9 w-full rounded-md border border-stone-300 bg-white px-2 text-sm"
+        >
+          <option value="left">Left</option>
+          <option value="center">Center</option>
+          <option value="justify">Justify</option>
+        </select>
+      </label>
+
+      <ThemeRange label="Text Size" value={theme.fontSize} min={14} max={24} step={1} onChange={(value) => onThemeChange('fontSize', value)} />
+      <ThemeRange label="Line Spacing" value={theme.lineHeight} min={1.3} max={2.4} step={0.05} onChange={(value) => onThemeChange('lineHeight', value)} />
+      <ThemeRange
+        label="Paragraph Spacing"
+        value={theme.paragraphSpacing}
+        min={6}
+        max={32}
+        step={1}
+        onChange={(value) => onThemeChange('paragraphSpacing', value)}
+      />
+
+      <div className="grid grid-cols-2 gap-3">
+        <ThemeColor label="Background" value={theme.background} onChange={(value) => onThemeChange('background', value)} />
+        <ThemeColor label="Text" value={theme.textColor} onChange={(value) => onThemeChange('textColor', value)} />
+      </div>
+    </div>
+  </div>
+);
+
+interface ThemeRangeProps {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+}
+
+const ThemeRange: React.FC<ThemeRangeProps> = ({ label, value, min, max, step, onChange }) => (
+  <label className="block text-xs font-medium text-stone-600">
+    <span className="flex justify-between">
+      {label}
+      <span>{Number.isInteger(value) ? value : value.toFixed(2)}</span>
+    </span>
+    <input
+      type="range"
+      min={min}
+      max={max}
+      step={step}
+      value={value}
+      onChange={(event) => onChange(Number(event.target.value))}
+      className="mt-1 w-full accent-stone-950"
+    />
+  </label>
+);
+
+interface ThemeColorProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}
+
+const ThemeColor: React.FC<ThemeColorProps> = ({ label, value, onChange }) => (
+  <label className="block text-xs font-medium text-stone-600">
+    {label}
+    <span className="mt-1 flex h-9 items-center gap-2 rounded-md border border-stone-300 bg-white px-2">
+      <input type="color" value={value} onChange={(event) => onChange(event.target.value)} className="h-6 w-8 border-0 bg-transparent p-0" />
+      <span className="font-mono text-xs">{value}</span>
+    </span>
+  </label>
+);
+
+interface HoverAnchor {
+  text: string;
+  sourceText: string;
+}
+
+interface HoverableLlmResponseProps {
+  text: string;
+  anchors: HoverAnchor[];
+  onHoverSource: (text: string) => void;
+}
+
+const HoverableLlmResponse: React.FC<HoverableLlmResponseProps> = ({ text, anchors, onHoverSource }) => {
+  if (!anchors.length) {
+    return <div className="whitespace-pre-wrap">{text}</div>;
+  }
+
+  const parts = splitResponseByAnchors(text, anchors);
+
+  return (
+    <div className="whitespace-pre-wrap">
+      {parts.map((part, index) =>
+        part.anchor ? (
+          <span
+            key={`${part.text}-${index}`}
+            onMouseEnter={() => onHoverSource(part.anchor?.sourceText || '')}
+            onMouseLeave={() => onHoverSource('')}
+            className="cursor-default rounded-sm bg-amber-100 px-0.5 text-stone-950"
+          >
+            {part.text}
+          </span>
+        ) : (
+          <span key={`${part.text}-${index}`}>{part.text}</span>
+        ),
+      )}
+    </div>
+  );
+};
+
+const normalizeComparableText = (value: string) => value.replace(/\s+/g, ' ').trim();
+
+const buildNoteHoverAnchors = (response: string, sourceText: string): HoverAnchor[] => {
+  const sourceLines = sourceText
+    .split('\n')
+    .map((line) => normalizeComparableText(line))
+    .filter((line) => line.length >= 6);
+  const candidates = new Set<string>();
+
+  for (const match of response.matchAll(/[“"']([^“"'\n]{4,80})[”"']/g)) {
+    candidates.add(normalizeComparableText(match[1]));
+  }
+
+  for (const line of sourceLines) {
+    const words = line.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || [];
+
+    for (const word of words) {
+      if (word.length >= 7 && response.toLocaleLowerCase().includes(word.toLocaleLowerCase())) {
+        candidates.add(word);
+      }
+    }
+  }
+
+  return Array.from(candidates)
+    .map((candidate) => {
+      const sourceMatch =
+        sourceLines.find((line) => line.toLocaleLowerCase().includes(candidate.toLocaleLowerCase())) ||
+        sourceLines.find((line) => candidate.toLocaleLowerCase().includes(line.toLocaleLowerCase()));
+
+      return sourceMatch
+        ? {
+            text: candidate,
+            sourceText: sourceMatch.toLocaleLowerCase().includes(candidate.toLocaleLowerCase()) ? candidate : sourceMatch,
+          }
+        : null;
+    })
+    .filter((item): item is HoverAnchor => Boolean(item))
+    .slice(0, 12);
+};
+
+const splitResponseByAnchors = (text: string, anchors: HoverAnchor[]) => {
+  const parts: Array<{ text: string; anchor?: HoverAnchor }> = [];
+  let index = 0;
+
+  while (index < text.length) {
+    const next = anchors
+      .map((anchor) => ({
+        anchor,
+        index: text.toLocaleLowerCase().indexOf(anchor.text.toLocaleLowerCase(), index),
+      }))
+      .filter((item) => item.index >= 0)
+      .sort((a, b) => a.index - b.index || b.anchor.text.length - a.anchor.text.length)[0];
+
+    if (!next) {
+      parts.push({ text: text.slice(index) });
+      break;
+    }
+
+    if (next.index > index) {
+      parts.push({ text: text.slice(index, next.index) });
+    }
+
+    parts.push({
+      text: text.slice(next.index, next.index + next.anchor.text.length),
+      anchor: next.anchor,
+    });
+    index = next.index + next.anchor.text.length;
+  }
+
+  return parts;
 };
 
 const buildTranslationNotes = (translation: TranslatedSegment) => {
