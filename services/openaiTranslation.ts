@@ -164,9 +164,10 @@ Return JSON with exactly these fields:
 
 Formatting rules for translatedText:
 - Preserve title lines, headings, paragraph breaks, numbered lists, stanza breaks, and visible line breaks from the source as much as possible.
-- If a source line is a standalone title or heading, keep the translation as a standalone line.
+- Do not translate running headers at the top of a page. They are usually just the book, chapter, or section name; copy them exactly as source text.
+- If a source line is a standalone title or heading in the body, keep it as a standalone line and do not add extra blank lines around it.
 - Do not collapse the passage into one paragraph.
-- Preserve footnote markers, page-like short lines, and deliberate indentation when they are semantically useful.
+- Preserve footnote markers, footer lines, page-like short lines, and deliberate indentation when they are semantically useful.
 - Return newline characters inside the JSON string, not HTML.
 
 Source language hint: ${segment.sourceLanguage}

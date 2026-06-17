@@ -1140,6 +1140,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             motherLanguage={motherLanguage}
             activeTranslation={activeTranslation}
             sourceText={activeSegment.sourceText}
+            formatPageFrame={book.fileType === 'pdf'}
             readingTheme={readingTheme}
             readingThemes={readingThemes}
             mode={rightPaneMode}
@@ -1402,6 +1403,7 @@ interface RightReaderPaneProps {
   motherLanguage: string;
   activeTranslation: TranslatedSegment | null;
   sourceText: string;
+  formatPageFrame: boolean;
   readingTheme: ReadingTheme;
   readingThemes: ReadingTheme[];
   mode: RightPaneMode;
@@ -1425,6 +1427,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   motherLanguage,
   activeTranslation,
   sourceText,
+  formatPageFrame,
   readingTheme,
   readingThemes,
   mode,
@@ -1518,6 +1521,8 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
           text={activeTranslation?.translatedText || 'Use Translate to create the facing page for this section.'}
           muted={!activeTranslation}
           theme={readingTheme}
+          sourceText={sourceText}
+          formatPageFrame={formatPageFrame && Boolean(activeTranslation)}
         />
         {isFormatOpen && (
           <ReadingThemePopover
@@ -1793,10 +1798,140 @@ interface FormattedReadingTextProps {
   muted?: boolean;
   theme?: ReadingTheme;
   hoverHighlightText?: string;
+  sourceText?: string;
+  formatPageFrame?: boolean;
 }
 
-const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({ text, muted, theme, hoverHighlightText = '' }) => {
-  const lines = text.replace(/\r/g, '').split('\n');
+type ReadingLineRole = 'blank' | 'body' | 'heading' | 'header' | 'footer';
+
+interface ReadingLayoutLine {
+  text: string;
+  role: ReadingLineRole;
+  compact?: boolean;
+}
+
+const getTextLines = (text: string) => text.replace(/\r/g, '').split('\n');
+
+const getMeaningfulLineIndexes = (lines: string[]) =>
+  lines.map((line, index) => (line.trim() ? index : -1)).filter((index) => index >= 0);
+
+const getWordCount = (text: string) => (text.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
+
+const isPageNumberLikeLine = (text: string) =>
+  /^(?:p(?:age)?\.?\s*)?\d{1,4}(?:\s*(?:\/|of|-|–|—)\s*\d{1,4})?$/i.test(text) || /^[ivxlcdm]{1,8}$/i.test(text);
+
+const isFootnoteLikeLine = (text: string) => /^(?:\d{1,3}|[*†‡§])[\).:\s-]+/.test(text);
+
+const hasTerminalPunctuation = (text: string) => /[.!?,;:，。！？；：]$/.test(text);
+
+const isLikelyFrameHeaderText = (text: string) => {
+  if (!text || text.length > 90 || isPageNumberLikeLine(text) || isFootnoteLikeLine(text)) {
+    return false;
+  }
+
+  const wordCount = getWordCount(text);
+  return wordCount <= 10 && !(hasTerminalPunctuation(text) && wordCount > 5);
+};
+
+const isLikelyFrameFooterText = (text: string) => {
+  if (!text || text.length > 90) {
+    return false;
+  }
+
+  return isPageNumberLikeLine(text) || isFootnoteLikeLine(text) || getWordCount(text) <= 8;
+};
+
+const getSourcePageFrame = (sourceText?: string, formatPageFrame?: boolean) => {
+  if (!sourceText || !formatPageFrame) {
+    return { headerText: '', hasFooter: false };
+  }
+
+  const lines = getTextLines(sourceText);
+  const meaningfulIndexes = getMeaningfulLineIndexes(lines);
+
+  if (meaningfulIndexes.length < 4) {
+    return { headerText: '', hasFooter: false };
+  }
+
+  const firstIndex = meaningfulIndexes[0];
+  const secondIndex = meaningfulIndexes[1];
+  const lastIndex = meaningfulIndexes[meaningfulIndexes.length - 1];
+  const previousIndex = meaningfulIndexes[meaningfulIndexes.length - 2];
+  const firstLine = lines[firstIndex].trim();
+  const lastLine = lines[lastIndex].trim();
+  const headerSeparated = secondIndex - firstIndex > 1;
+  const footerSeparated = lastIndex - previousIndex > 1;
+
+  return {
+    headerText: headerSeparated && isLikelyFrameHeaderText(firstLine) ? firstLine : '',
+    hasFooter: isPageNumberLikeLine(lastLine) || (footerSeparated && isLikelyFrameFooterText(lastLine)),
+  };
+};
+
+const isStandaloneHeadingLine = (lines: string[], index: number, meaningfulIndexes: number[]) => {
+  const trimmed = lines[index].trim();
+
+  if (!trimmed || trimmed.length > 90 || hasTerminalPunctuation(trimmed) || isPageNumberLikeLine(trimmed) || isFootnoteLikeLine(trimmed)) {
+    return false;
+  }
+
+  const previousBlank = index === 0 || !lines[index - 1].trim();
+  const nextBlank = index === lines.length - 1 || !lines[index + 1].trim();
+  const meaningfulPosition = meaningfulIndexes.indexOf(index);
+
+  return getWordCount(trimmed) <= 12 && (index < 8 || meaningfulPosition <= 1 || (previousBlank && nextBlank));
+};
+
+const buildReadingLayoutLines = (text: string, sourceText?: string, formatPageFrame?: boolean): ReadingLayoutLine[] => {
+  const lines = getTextLines(text);
+  const meaningfulIndexes = getMeaningfulLineIndexes(lines);
+  const firstIndex = meaningfulIndexes[0];
+  const lastIndex = meaningfulIndexes[meaningfulIndexes.length - 1];
+  const pageFrame = getSourcePageFrame(sourceText, formatPageFrame);
+
+  const roles = lines.map<ReadingLineRole>((line, index) => {
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      return 'blank';
+    }
+
+    if (pageFrame.headerText && index === firstIndex) {
+      return 'header';
+    }
+
+    if (pageFrame.hasFooter && index === lastIndex && index !== firstIndex) {
+      return 'footer';
+    }
+
+    return isStandaloneHeadingLine(lines, index, meaningfulIndexes) ? 'heading' : 'body';
+  });
+
+  return lines.map((line, index) => {
+    const role = roles[index];
+    const previousRole = index > 0 ? roles[index - 1] : 'blank';
+    const nextRole = index < roles.length - 1 ? roles[index + 1] : 'blank';
+    const compact = role === 'blank' && (previousRole === 'heading' || previousRole === 'header' || nextRole === 'heading' || nextRole === 'header');
+
+    return {
+      text: role === 'header' && pageFrame.headerText ? pageFrame.headerText : line,
+      role,
+      compact,
+    };
+  });
+};
+
+const getSubduedTextColor = (theme?: ReadingTheme) => (theme?.id === 'night' ? '#a8a29e' : '#78716c');
+
+const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
+  text,
+  muted,
+  theme,
+  hoverHighlightText = '',
+  sourceText,
+  formatPageFrame,
+}) => {
+  const lines = buildReadingLayoutLines(text, sourceText, formatPageFrame);
   const fontClass =
     theme?.font === 'mono'
       ? 'font-mono'
@@ -1820,34 +1955,55 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({ text, muted
       style={textStyle}
     >
       {lines.map((line, index) => {
-        const trimmed = line.trim();
-        const previousBlank = index === 0 || !lines[index - 1].trim();
-        const nextBlank = index === lines.length - 1 || !lines[index + 1].trim();
-        const isHeading =
-          trimmed.length > 0 &&
-          trimmed.length <= 90 &&
-          (index < 8 || (previousBlank && nextBlank)) &&
-          !/[.!?,;:，。！？；：]$/.test(trimmed);
-
-        if (!trimmed) {
-          return <div key={`blank-${index}`} style={{ height: theme ? `${theme.paragraphSpacing}px` : undefined }} className="h-4" />;
-        }
-
-        if (isHeading) {
+        if (line.role === 'blank') {
           return (
             <div
-              key={`${line}-${index}`}
-              className="mb-3 mt-5 text-center text-[1.18rem] font-semibold leading-8"
-              style={theme ? { color: theme.textColor } : undefined}
+              key={`blank-${index}`}
+              style={{ height: theme ? `${line.compact ? Math.max(4, Math.round(theme.paragraphSpacing * 0.35)) : theme.paragraphSpacing}px` : undefined }}
+              className={line.compact ? 'h-1' : 'h-4'}
+            />
+          );
+        }
+
+        if (line.role === 'header') {
+          return (
+            <div
+              key={`${line.text}-${index}`}
+              className="mb-2 text-center text-[0.78em] font-medium leading-5 text-stone-500"
+              style={theme ? { color: getSubduedTextColor(theme), textAlign: 'center' } : undefined}
             >
-              <HighlightedLine line={line} phrase={hoverHighlightText} />
+              <HighlightedLine line={line.text} phrase={hoverHighlightText} />
+            </div>
+          );
+        }
+
+        if (line.role === 'footer') {
+          return (
+            <div
+              key={`${line.text}-${index}`}
+              className="mt-3 text-center text-[0.78em] leading-5 text-stone-500"
+              style={theme ? { color: getSubduedTextColor(theme), textAlign: 'center' } : undefined}
+            >
+              <HighlightedLine line={line.text} phrase={hoverHighlightText} />
+            </div>
+          );
+        }
+
+        if (line.role === 'heading') {
+          return (
+            <div
+              key={`${line.text}-${index}`}
+              className="my-2 text-center text-[1.08rem] font-semibold leading-7 md:text-[1.12rem]"
+              style={theme ? { color: theme.textColor, textAlign: 'center' } : undefined}
+            >
+              <HighlightedLine line={line.text} phrase={hoverHighlightText} />
             </div>
           );
         }
 
         return (
-          <div key={`${line}-${index}`} className="min-h-8">
-            <HighlightedLine line={line} phrase={hoverHighlightText} />
+          <div key={`${line.text}-${index}`}>
+            <HighlightedLine line={line.text} phrase={hoverHighlightText} />
           </div>
         );
       })}
