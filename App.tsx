@@ -1,516 +1,1605 @@
-
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Plus, 
-  Play, 
-  Download, 
-  Settings, 
-  Trash2, 
-  Layers, 
-  Type as TypeIcon, 
-  Palette, 
-  Sparkles,
-  ChevronRight,
-  ChevronLeft,
-  FileText,
-  Clock,
-  Layout,
-  Square,
-  Image as ImageIcon,
-  Film,
-  Loader2,
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
   AlertCircle,
-  Monitor
+  ArrowLeft,
+  Bookmark as BookmarkIcon,
+  BookOpen,
+  FileText,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Highlighter,
+  KeyRound,
+  Languages,
+  Library,
+  Loader2,
+  Play,
+  Settings2,
+  Sparkles,
+  Upload,
+  X,
 } from 'lucide-react';
-import { Scene, AnimationType, VisualizerConfig } from './types';
-import PreviewCanvas from './components/PreviewCanvas';
-import EditorPanel from './components/EditorPanel';
-import SceneManager from './components/SceneManager';
-import { analyzeTextMood } from './services/geminiService';
-import { toCanvas } from 'html-to-image';
+import { parseBookFile } from './services/bookIngestion';
+import { loadBooksFromLibrary, saveBookToLibrary } from './services/libraryStorage';
+import { PROVIDER_PRESETS, respondToReaderNote, testLlmSettings, translateSegment } from './services/openaiTranslation';
+import { renderPdfPageToCanvas } from './services/pdfRenderer';
+import {
+  Bookmark,
+  Highlight,
+  KnowledgeCard,
+  LlmSettings,
+  ReaderNote,
+  ReadingProgress,
+  TranslatedSegment,
+  UploadedBook,
+} from './types';
 
-const INITIAL_SCENE: Scene = {
-  id: '1',
-  text: "Welcome to LuminaBook. Start typing your story...",
-  animation: AnimationType.FADE_IN,
-  duration: 2,
-  delay: 0.5,
-  fontSize: 48,
-  letterSpacing: 0,
-  lineHeight: 1.4,
-  color: '#ffffff',
-  background: '#0a0a0a',
-  fontFamily: 'serif',
-  textAlign: 'center',
-  writingMode: 'horizontal-tb',
-  direction: 'ltr',
-  language: 'en'
+const MOTHER_LANGUAGES = [
+  'English',
+  '中文',
+  'Español',
+  'Français',
+  'Deutsch',
+  '日本語',
+  '한국어',
+  'العربية',
+  'Português',
+  'Русский',
+];
+
+const DEFAULT_SYSTEM_PROMPT = `You are LuminaBook, a careful bilingual great-books reading companion.
+
+Translate faithfully into the reader's mother language while preserving interpretive ambiguity.
+Explain what may be lost in translation, especially key terms, metaphors, grammar, historical context, and hermeneutic stakes.
+Do not simplify away difficulty. Help the reader compare source and translation reflectively and proactively.`;
+
+const DEFAULT_SETTINGS: LlmSettings = {
+  provider: 'openai',
+  endpoint: 'https://api.openai.com',
+  apiKey: '',
+  model: 'gpt-4.1-mini',
+  useJsonMode: true,
+  systemPrompt: DEFAULT_SYSTEM_PROMPT,
 };
 
+const STORAGE_KEYS = {
+  bookmarks: 'luminabook.bookmarks',
+  highlights: 'luminabook.highlights',
+  cards: 'luminabook.knowledgeCards',
+  notes: 'luminabook.notes',
+  progress: 'luminabook.progress',
+};
+
+const readStorage = <T,>(key: string, fallback: T): T => {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? (JSON.parse(value) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const writeStorage = (key: string, value: unknown) => {
+  localStorage.setItem(key, JSON.stringify(value));
+};
+
+const belongsToBook = <T extends { bookId?: string; bookTitle: string }>(item: T, targetBook: UploadedBook) =>
+  item.bookId ? item.bookId === targetBook.id : item.bookTitle === targetBook.title;
+
 const App: React.FC = () => {
-  const [config, setConfig] = useState<VisualizerConfig>({
-    title: "Untitled Story",
-    scenes: [INITIAL_SCENE],
-    globalTransition: 1.0,
-    readingBuffer: 1.5
-  });
-  const [activeSceneId, setActiveSceneId] = useState<string>(INITIAL_SCENE.id);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentPlayIndex, setCurrentPlayIndex] = useState(0);
-  const [playSessionId, setPlaySessionId] = useState(0);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportProgress, setExportProgress] = useState("");
-  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [view, setView] = useState<'library' | 'reader'>('library');
+  const [books, setBooks] = useState<UploadedBook[]>([]);
+  const [activeBookId, setActiveBookId] = useState('');
+  const [motherLanguage, setMotherLanguage] = useState('English');
+  const [settings, setSettings] = useState<LlmSettings>(DEFAULT_SETTINGS);
+  const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
+  const [translatedSegmentsByBook, setTranslatedSegmentsByBook] = useState<Record<string, Record<string, TranslatedSegment>>>({});
+  const [rightPaneMode, setRightPaneMode] = useState<'translation' | 'notes'>('translation');
+  const [isParsing, setIsParsing] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [isRespondingToNote, setIsRespondingToNote] = useState(false);
+  const [isLibraryLoading, setIsLibraryLoading] = useState(true);
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isTestingProvider, setIsTestingProvider] = useState(false);
+  const [providerStatus, setProviderStatus] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => readStorage<Bookmark[]>(STORAGE_KEYS.bookmarks, []));
+  const [highlights, setHighlights] = useState<Highlight[]>(() => readStorage<Highlight[]>(STORAGE_KEYS.highlights, []));
+  const [knowledgeCards, setKnowledgeCards] = useState<KnowledgeCard[]>(() =>
+    readStorage<KnowledgeCard[]>(STORAGE_KEYS.cards, []),
+  );
+  const [notes, setNotes] = useState<ReaderNote[]>(() => readStorage<ReaderNote[]>(STORAGE_KEYS.notes, []));
+  const [readingProgress, setReadingProgress] = useState<ReadingProgress[]>(() =>
+    readStorage<ReadingProgress[]>(STORAGE_KEYS.progress, []),
+  );
+  const booksRef = useRef<UploadedBook[]>([]);
 
-  const previewRef = useRef<HTMLDivElement>(null);
-  const activeScene = config.scenes.find(s => s.id === activeSceneId) || config.scenes[0];
+  const book = books.find((item) => item.id === activeBookId) || null;
+  const activeSegment = book?.segments[activeSegmentIndex] || null;
+  const translatedSegments = book ? translatedSegmentsByBook[book.id] || {} : {};
+  const activeTranslation = activeSegment ? translatedSegments[activeSegment.id] : null;
+  const translatedCount = useMemo(() => Object.keys(translatedSegments).length, [translatedSegments]);
+  const progress = book ? Math.round((translatedCount / book.segments.length) * 100) : 0;
+  const isBookmarked = Boolean(
+    book && bookmarks.some((bookmark) => belongsToBook(bookmark, book) && bookmark.segmentIndex === activeSegmentIndex),
+  );
+  const activeHighlights = useMemo(
+    () =>
+      book && activeSegment
+        ? highlights.filter((highlight) => belongsToBook(highlight, book) && highlight.segmentId === activeSegment.id)
+        : [],
+    [book, activeSegment, highlights],
+  );
+  const activeKnowledgeCards = useMemo(
+    () =>
+      book && activeSegment
+        ? knowledgeCards.filter((card) => belongsToBook(card, book) && card.segmentId === activeSegment.id)
+        : [],
+    [book, activeSegment, knowledgeCards],
+  );
+  const activeNote = useMemo(
+    () =>
+      book && activeSegment
+        ? notes.find((note) => belongsToBook(note, book) && note.segmentId === activeSegment.id) || null
+        : null,
+    [book, activeSegment, notes],
+  );
 
-  const updateScene = (updatedScene: Scene) => {
-    setConfig(prev => ({
-      ...prev,
-      scenes: prev.scenes.map(s => s.id === updatedScene.id ? updatedScene : s)
+  const updateSettings = <K extends keyof LlmSettings>(key: K, value: LlmSettings[K]) => {
+    setSettings((current) => ({ ...current, [key]: value }));
+  };
+
+  const applyProvider = (providerId: string) => {
+    const preset = PROVIDER_PRESETS.find((provider) => provider.id === providerId);
+
+    if (!preset) {
+      updateSettings('provider', providerId);
+      return;
+    }
+
+    setSettings((current) => ({
+      ...current,
+      provider: preset.id,
+      endpoint: preset.endpoint,
+      model: preset.models[0],
+      useJsonMode: preset.useJsonMode,
     }));
+    setProviderStatus('');
   };
 
-  const addScene = () => {
-    const newId = Math.random().toString(36).substr(2, 9);
-    const newScene: Scene = {
-      ...activeScene,
-      id: newId,
-      text: activeScene.language === 'zh' ? "新篇章开始了..." : "New chapter begins..."
-    };
-    setConfig(prev => ({ ...prev, scenes: [...prev.scenes, newScene] }));
-    setActiveSceneId(newId);
-  };
+  const testProvider = async () => {
+    setIsTestingProvider(true);
+    setProviderStatus('');
+    setErrorMessage('');
 
-  const deleteScene = (id: string) => {
-    if (config.scenes.length <= 1) return;
-    setConfig(prev => {
-      const filtered = prev.scenes.filter(s => s.id !== id);
-      if (activeSceneId === id) setActiveSceneId(filtered[0].id);
-      return { ...prev, scenes: filtered };
-    });
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      const paragraphs = content.split('\n').filter(p => p.trim() !== '');
-      const isLikelyChinese = /[\u4e00-\u9fa5]/.test(content);
-      
-      const newScenes: Scene[] = paragraphs.map((p, i) => ({
-        ...INITIAL_SCENE,
-        id: `file-${i}-${Date.now()}`,
-        text: p.trim(),
-        language: isLikelyChinese ? 'zh' : 'en',
-        fontFamily: isLikelyChinese ? 'zh-serif' : 'serif'
-      }));
-      setConfig(prev => ({ ...prev, scenes: newScenes }));
-      setActiveSceneId(newScenes[0].id);
-    };
-    reader.readAsText(file);
-  };
-
-  const handleAIAnalyze = async () => {
-    if (!activeScene.text.trim()) return;
-    setIsAnalyzing(true);
     try {
-      const result = await analyzeTextMood(activeScene.text);
-      if (result) {
-        updateScene({
-          ...activeScene,
-          background: result.colorTheme || activeScene.background,
-          fontFamily: (result.fontStyle as any) || activeScene.fontFamily,
-          animation: (result.suggestedAnimation as any) || activeScene.animation,
-          visualPrompt: result.visualPrompt || activeScene.visualPrompt
-        });
-      }
+      const result = await testLlmSettings(settings);
+      setProviderStatus(`Available: ${result}`);
     } catch (error) {
-      console.error("AI Analysis failed:", error);
+      setProviderStatus('');
+      setErrorMessage(error instanceof Error ? error.message : 'Provider test failed.');
     } finally {
-      setIsAnalyzing(false);
+      setIsTestingProvider(false);
     }
   };
 
-  const exportLocalVideo = async () => {
-    if (!previewRef.current) return;
-    
-    setIsExporting(true);
-    setShowExportMenu(false);
-    setIsPlaying(false);
+  useEffect(() => {
+    let cancelled = false;
 
-    const width = 1024;
-    const height = 576;
-    const fps = 24; // Standard cinematic framerate
-    
-    // Create recorder canvas
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const restoreLibrary = async () => {
+      setIsLibraryLoading(true);
 
-    const stream = canvas.captureStream(fps);
-    const mediaRecorder = new MediaRecorder(stream, {
-      mimeType: 'video/webm;codecs=vp9',
-      videoBitsPerSecond: 8000000 // 8Mbps for high quality
-    });
+      const storedBooks = await loadBooksFromLibrary();
 
-    const chunks: Blob[] = [];
-    mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-    mediaRecorder.onstop = () => {
-      const blob = new Blob(chunks, { type: 'video/webm' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${config.title.replace(/\s+/g, '_')}.webm`;
-      a.click();
-      setIsExporting(false);
+      if (!cancelled) {
+        setBooks((current) => {
+          const currentIds = new Set(current.map((item) => item.id));
+          return [...current, ...storedBooks.filter((item) => !currentIds.has(item.id))];
+        });
+        setStatusMessage(storedBooks.length ? `${storedBooks.length} saved book${storedBooks.length > 1 ? 's' : ''} restored.` : '');
+        setIsLibraryLoading(false);
+      }
     };
 
-    mediaRecorder.start();
+    restoreLibrary();
 
-    try {
-      for (let i = 0; i < config.scenes.length; i++) {
-        const scene = config.scenes[i];
-        setActiveSceneId(scene.id);
-        
-        // Wait for scene transition
-        setExportProgress(`Preparing Scene ${i + 1}...`);
-        await new Promise(r => setTimeout(r, 600));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-        const sceneTotalTime = (scene.delay || 0) + (scene.duration || 1) + (config.readingBuffer || 0);
-        const totalFrames = Math.ceil(sceneTotalTime * fps);
+  useEffect(
+    () => {
+      booksRef.current = books;
+    },
+    [books],
+  );
 
-        for (let frame = 0; frame < totalFrames; frame++) {
-          setExportProgress(`Capturing Scene ${i + 1}/${config.scenes.length} (Frame ${frame}/${totalFrames})`);
-          
-          // Use html-to-image's toCanvas for maximum speed/quality balance
-          const sceneCanvas = await toCanvas(previewRef.current, {
-            width: width,
-            height: height,
-            pixelRatio: 1
-          });
-
-          ctx.clearRect(0, 0, width, height);
-          ctx.drawImage(sceneCanvas, 0, 0, width, height);
-          
-          // Yield to let the browser process the stream
-          await new Promise(r => requestAnimationFrame(r));
+  useEffect(
+    () => () => {
+      for (const item of booksRef.current) {
+        if (item.sourceUrl) {
+          URL.revokeObjectURL(item.sourceUrl);
         }
       }
+    },
+    [],
+  );
 
-      mediaRecorder.stop();
-      setExportProgress("Finalizing file...");
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.bookmarks, bookmarks);
+  }, [bookmarks]);
 
-    } catch (err) {
-      console.error("Export Error:", err);
-      alert("Export failed. Please try with fewer scenes.");
-      setIsExporting(false);
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.highlights, highlights);
+  }, [highlights]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.cards, knowledgeCards);
+  }, [knowledgeCards]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.notes, notes);
+  }, [notes]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.progress, readingProgress);
+  }, [readingProgress]);
+
+  useEffect(() => {
+    if (!book) {
+      return;
     }
-  };
 
-  const exportImage = async () => {
-    if (!previewRef.current) return;
-    setIsExporting(true);
-    setExportProgress("Snapshotting...");
+    setReadingProgress((current) => {
+      const next: ReadingProgress = {
+        bookId: book.id,
+        bookTitle: book.title,
+        segmentIndex: activeSegmentIndex,
+        updatedAt: new Date().toISOString(),
+      };
+      const existing = current.filter((item) => !belongsToBook(item, book));
+      return [...existing, next].slice(-30);
+    });
+  }, [book, activeSegmentIndex]);
+
+  const handleFileUpload = async (files: FileList | File[] | null) => {
+    const uploads = Array.from(files || []);
+
+    if (!uploads.length) {
+      return;
+    }
+
+    setIsParsing(true);
+    setErrorMessage('');
+    setStatusMessage(uploads.length > 1 ? `Extracting ${uploads.length} books...` : 'Extracting text from book...');
+
     try {
-      const canvas = await toCanvas(previewRef.current, { pixelRatio: 2 });
-      const dataUrl = canvas.toDataURL('image/jpeg', 1.0);
-      const link = document.createElement('a');
-      link.download = `LuminaBook_${activeSceneId}.jpg`;
-      link.href = dataUrl;
-      link.click();
-    } catch (err) {
-      console.error('Snapshot failed', err);
-    } finally {
-      setIsExporting(false);
-      setShowExportMenu(false);
-    }
-  };
+      const parsedBooks: UploadedBook[] = [];
 
-  const togglePlayback = () => {
-    if (!isPlaying) {
-      setCurrentPlayIndex(0);
-      setPlaySessionId(prev => prev + 1);
-      setIsPlaying(true);
-    } else {
-      setIsPlaying(false);
-    }
-  };
+      for (const file of uploads) {
+        setStatusMessage(`Extracting ${file.name}...`);
+        const parsed = await parseBookFile(file);
+        await saveBookToLibrary(parsed, file);
+        parsedBooks.push(parsed);
+      }
 
-  useEffect(() => {
-    if (isPlaying) {
-      setActiveSceneId(config.scenes[currentPlayIndex].id);
-    }
-  }, [isPlaying, currentPlayIndex]);
+      const firstParsed = parsedBooks[0];
+      const savedProgress = readingProgress.find((item) => belongsToBook(item, firstParsed));
 
-  useEffect(() => {
-    let timer: any;
-    if (isPlaying) {
-      const scene = config.scenes[currentPlayIndex];
-      const totalDuration = (
-        (scene.delay || 0) + 
-        (scene.duration || 1) + 
-        (config.readingBuffer || 0) + 
-        (config.globalTransition || 0)
-      ) * 1000;
-      
-      timer = setTimeout(() => {
-        if (currentPlayIndex < config.scenes.length - 1) {
-          setCurrentPlayIndex(prev => prev + 1);
-        } else {
-          setIsPlaying(false);
+      setBooks((current) => {
+        const incomingIds = new Set(parsedBooks.map((item) => item.id));
+
+        for (const existing of current) {
+          if (incomingIds.has(existing.id) && existing.sourceUrl) {
+            URL.revokeObjectURL(existing.sourceUrl);
+          }
         }
-      }, totalDuration);
+
+        return [...parsedBooks, ...current.filter((item) => !incomingIds.has(item.id))];
+      });
+      setActiveBookId(firstParsed.id);
+      setActiveSegmentIndex(
+        savedProgress ? Math.min(Math.max(savedProgress.segmentIndex, 0), firstParsed.segments.length - 1) : 0,
+      );
+      setStatusMessage(
+        parsedBooks.length > 1
+          ? `Ready: ${parsedBooks.length} books added to the shelf.`
+          : `Ready: ${firstParsed.segments.length} reading pages extracted.`,
+      );
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not parse the selected book.');
+      setStatusMessage('');
+    } finally {
+      setIsParsing(false);
     }
-    return () => clearTimeout(timer);
-  }, [isPlaying, currentPlayIndex, config.scenes, config.globalTransition, config.readingBuffer]);
+  };
+
+  const translateCurrent = async () => {
+    if (!activeSegment) {
+      return;
+    }
+
+    setIsTranslating(true);
+    setErrorMessage('');
+    setStatusMessage(`Translating ${activeSegment.label || `page ${activeSegment.index + 1}`}...`);
+
+    try {
+      const result = await translateSegment(activeSegment, motherLanguage, settings);
+      setTranslatedSegmentsByBook((current) => ({
+        ...current,
+        [book.id]: {
+          ...(current[book.id] || {}),
+          [activeSegment.id]: {
+            ...activeSegment,
+            translatedText: result.translatedText,
+            commentary: result.commentary,
+            keyTerms: result.keyTerms || [],
+            reflectionPrompt: result.reflectionPrompt,
+          },
+        },
+      }));
+      setStatusMessage(`${activeSegment.label || `Page ${activeSegment.index + 1}`} translated.`);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Translation failed.');
+      setStatusMessage('');
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const translateNext = async () => {
+    if (!book) {
+      return;
+    }
+
+    setIsTranslating(true);
+    setErrorMessage('');
+
+    const start = activeSegmentIndex;
+    const pending = book.segments.slice(start, start + 3).filter((segment) => !translatedSegments[segment.id]);
+
+    if (!pending.length) {
+      setStatusMessage('The next visible pages are already translated.');
+      setIsTranslating(false);
+      return;
+    }
+
+    try {
+      for (const segment of pending) {
+        setStatusMessage(`Translating ${segment.label || `page ${segment.index + 1}`}...`);
+        const result = await translateSegment(segment, motherLanguage, settings);
+        setTranslatedSegmentsByBook((current) => ({
+          ...current,
+          [book.id]: {
+            ...(current[book.id] || {}),
+            [segment.id]: {
+              ...segment,
+              translatedText: result.translatedText,
+              commentary: result.commentary,
+              keyTerms: result.keyTerms || [],
+              reflectionPrompt: result.reflectionPrompt,
+            },
+          },
+        }));
+      }
+      setStatusMessage(`Translated ${pending.length} page group${pending.length > 1 ? 's' : ''}.`);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Batch translation failed.');
+      setStatusMessage('');
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const moveSegment = (direction: -1 | 1) => {
+    if (!book) {
+      return;
+    }
+
+    setActiveSegmentIndex((current) => Math.min(Math.max(current + direction, 0), book.segments.length - 1));
+  };
+
+  const toggleBookmark = () => {
+    if (!book || !activeSegment) {
+      return;
+    }
+
+    setBookmarks((current) => {
+      const exists = current.some(
+        (bookmark) => belongsToBook(bookmark, book) && bookmark.segmentIndex === activeSegmentIndex,
+      );
+
+      if (exists) {
+        return current.filter(
+          (bookmark) => !(belongsToBook(bookmark, book) && bookmark.segmentIndex === activeSegmentIndex),
+        );
+      }
+
+      return [
+        ...current,
+        {
+          id: `${book.id}-${activeSegmentIndex}-${Date.now()}`,
+          bookId: book.id,
+          bookTitle: book.title,
+          segmentIndex: activeSegmentIndex,
+          label: activeSegment.label || `Page ${activeSegmentIndex + 1}`,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+    });
+  };
+
+  const getSelectedReaderText = () => window.getSelection()?.toString().replace(/\s+\n/g, '\n').trim() || '';
+
+  const addHighlight = (pageSide: Highlight['pageSide']) => {
+    if (!book || !activeSegment) {
+      return;
+    }
+
+    const selection = getSelectedReaderText();
+
+    if (!selection) {
+      setStatusMessage('Select text in the page first, then add a highlight.');
+      return;
+    }
+
+    setHighlights((current) => [
+      ...current,
+      {
+        id: `${book.id}-${activeSegment.id}-${Date.now()}`,
+        bookId: book.id,
+        bookTitle: book.title,
+        segmentId: activeSegment.id,
+        segmentIndex: activeSegmentIndex,
+        pageSide,
+        text: selection.slice(0, 500),
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    window.getSelection()?.removeAllRanges();
+    setStatusMessage('Highlight saved.');
+  };
+
+  const createKnowledgeCard = (pageSide: Highlight['pageSide']) => {
+    if (!book || !activeSegment) {
+      return;
+    }
+
+    const selection = getSelectedReaderText();
+
+    if (!selection) {
+      setStatusMessage('Select text in the page first, then create a knowledge card.');
+      return;
+    }
+
+    setKnowledgeCards((current) => [
+      ...current,
+      {
+        id: `${book.id}-${activeSegment.id}-card-${Date.now()}`,
+        bookId: book.id,
+        bookTitle: book.title,
+        segmentId: activeSegment.id,
+        segmentIndex: activeSegmentIndex,
+        pageSide,
+        excerpt: selection.slice(0, 1000),
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    window.getSelection()?.removeAllRanges();
+    setStatusMessage('Knowledge card saved.');
+  };
+
+  const goToBookmark = (bookmark: Bookmark) => {
+    const targetBook = books.find((item) => belongsToBook(bookmark, item));
+
+    if (!targetBook) {
+      return;
+    }
+
+    setActiveBookId(targetBook.id);
+    setActiveSegmentIndex(Math.min(Math.max(bookmark.segmentIndex, 0), targetBook.segments.length - 1));
+    setView('reader');
+  };
+
+  const openBook = (bookId: string) => {
+    const targetBook = books.find((item) => item.id === bookId);
+
+    if (!targetBook) {
+      return;
+    }
+
+    const savedProgress = readingProgress.find((item) => belongsToBook(item, targetBook));
+    setActiveBookId(bookId);
+    setActiveSegmentIndex(
+      savedProgress ? Math.min(Math.max(savedProgress.segmentIndex, 0), targetBook.segments.length - 1) : 0,
+    );
+    setView('reader');
+  };
+
+  const updateActiveNote = (body: string) => {
+    if (!book || !activeSegment) {
+      return;
+    }
+
+    setNotes((current) => {
+      const existing = current.find((note) => belongsToBook(note, book) && note.segmentId === activeSegment.id);
+      const next: ReaderNote = {
+        id: existing?.id || `${book.id}-${activeSegment.id}-${Date.now()}`,
+        bookId: book.id,
+        bookTitle: book.title,
+        segmentId: activeSegment.id,
+        segmentIndex: activeSegmentIndex,
+        body,
+        llmResponse: existing?.llmResponse,
+        updatedAt: new Date().toISOString(),
+      };
+
+      return [...current.filter((note) => note.id !== next.id), next];
+    });
+  };
+
+  const respondToNote = async () => {
+    if (!book || !activeSegment || !activeNote?.body.trim()) {
+      setStatusMessage('Write a note first.');
+      return;
+    }
+
+    setIsRespondingToNote(true);
+    setErrorMessage('');
+
+    try {
+      const response = await respondToReaderNote(
+        activeNote.body,
+        activeSegment,
+        activeTranslation?.translatedText || '',
+        motherLanguage,
+        settings,
+      );
+      setNotes((current) =>
+        current.map((note) =>
+          note.id === activeNote.id ? { ...note, llmResponse: response, updatedAt: new Date().toISOString() } : note,
+        ),
+      );
+      setStatusMessage('LLM note response saved.');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Note response failed.');
+      setStatusMessage('');
+    } finally {
+      setIsRespondingToNote(false);
+    }
+  };
+
+  if (view === 'reader' && book && activeSegment) {
+    return (
+      <ReaderView
+        book={book}
+        motherLanguage={motherLanguage}
+        activeSegmentIndex={activeSegmentIndex}
+        activeSegment={activeSegment}
+        activeTranslation={activeTranslation || null}
+        progress={progress}
+        isTranslating={isTranslating}
+        statusMessage={statusMessage}
+        errorMessage={errorMessage}
+        onBack={() => setView('library')}
+        onPrevious={() => moveSegment(-1)}
+        onNext={() => moveSegment(1)}
+        onTranslateCurrent={translateCurrent}
+        onTranslateNext={translateNext}
+        isBookmarked={isBookmarked}
+        highlights={activeHighlights}
+        knowledgeCards={activeKnowledgeCards}
+        onToggleBookmark={toggleBookmark}
+        onAddHighlight={addHighlight}
+        onCreateKnowledgeCard={createKnowledgeCard}
+        rightPaneMode={rightPaneMode}
+        onRightPaneModeChange={setRightPaneMode}
+        note={activeNote}
+        onNoteChange={updateActiveNote}
+        onRespondToNote={respondToNote}
+        isRespondingToNote={isRespondingToNote}
+      />
+    );
+  }
 
   return (
-    <div className="flex h-screen bg-[#0a0a0a] text-zinc-100 overflow-hidden font-sans">
-      <AnimatePresence>
-        {isExporting && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-2xl flex flex-col items-center justify-center p-12 text-center"
-          >
-            <div className="relative mb-8">
-              <Loader2 className="w-16 h-16 text-indigo-500 animate-spin" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-10 h-10 bg-indigo-500/20 blur-xl rounded-full animate-pulse" />
-              </div>
-            </div>
-            <h2 className="text-xl font-bold mb-2 tracking-tight text-white">
-              {exportProgress}
-            </h2>
-            <p className="text-zinc-500 text-xs max-w-xs leading-relaxed">
-              Recording visual stream. Please keep this tab open and visible for the duration of the export.
-            </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <LibraryView
+      books={books}
+      motherLanguage={motherLanguage}
+      settings={settings}
+      translatedSegmentsByBook={translatedSegmentsByBook}
+      isParsing={isParsing}
+      isLibraryLoading={isLibraryLoading}
+      statusMessage={statusMessage}
+      errorMessage={errorMessage}
+      onFileUpload={handleFileUpload}
+      onMotherLanguageChange={setMotherLanguage}
+      onSettingsChange={updateSettings}
+      onProviderChange={applyProvider}
+      onOpenBook={openBook}
+      bookmarks={bookmarks}
+      onOpenBookmark={goToBookmark}
+      isConfigOpen={isConfigOpen}
+      isTestingProvider={isTestingProvider}
+      providerStatus={providerStatus}
+      onOpenConfig={() => setIsConfigOpen(true)}
+      onCloseConfig={() => setIsConfigOpen(false)}
+      onTestProvider={testProvider}
+    />
+  );
+};
 
-      <motion.div 
-        initial={false}
-        animate={{ width: isSidebarOpen ? 320 : 0 }}
-        className="bg-[#111111] border-r border-zinc-800 flex flex-col relative"
+interface LibraryViewProps {
+  books: UploadedBook[];
+  motherLanguage: string;
+  settings: LlmSettings;
+  translatedSegmentsByBook: Record<string, Record<string, TranslatedSegment>>;
+  isParsing: boolean;
+  isLibraryLoading: boolean;
+  statusMessage: string;
+  errorMessage: string;
+  onFileUpload: (files: FileList | File[] | null) => void;
+  onMotherLanguageChange: (language: string) => void;
+  onSettingsChange: <K extends keyof LlmSettings>(key: K, value: LlmSettings[K]) => void;
+  onProviderChange: (providerId: string) => void;
+  onOpenBook: (bookId: string) => void;
+  bookmarks: Bookmark[];
+  onOpenBookmark: (bookmark: Bookmark) => void;
+  isConfigOpen: boolean;
+  isTestingProvider: boolean;
+  providerStatus: string;
+  onOpenConfig: () => void;
+  onCloseConfig: () => void;
+  onTestProvider: () => void;
+}
+
+const LibraryView: React.FC<LibraryViewProps> = ({
+  books,
+  motherLanguage,
+  settings,
+  translatedSegmentsByBook,
+  isParsing,
+  isLibraryLoading,
+  statusMessage,
+  errorMessage,
+  onFileUpload,
+  onMotherLanguageChange,
+  onSettingsChange,
+  onProviderChange,
+  onOpenBook,
+  bookmarks,
+  onOpenBookmark,
+  isConfigOpen,
+  isTestingProvider,
+  providerStatus,
+  onOpenConfig,
+  onCloseConfig,
+  onTestProvider,
+}) => (
+  <div className="min-h-screen bg-[#f5f1e8] text-stone-950">
+    <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-6">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-md bg-stone-950 text-[#f5f1e8]">
+          <Library className="h-5 w-5" />
+        </div>
+        <div>
+          <h1 className="text-xl font-semibold tracking-normal">LuminaBook</h1>
+          <p className="text-sm text-stone-600">Your bilingual great-books shelf</p>
+        </div>
+      </div>
+      <button
+        onClick={onOpenConfig}
+        className="flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 shadow-sm hover:bg-white"
       >
-        <div className="p-6 flex items-center justify-between border-b border-zinc-800 shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
-            <h1 className="font-bold text-lg tracking-tight">LuminaBook</h1>
-          </div>
-          <button onClick={() => setIsSidebarOpen(false)} className="p-1 hover:bg-zinc-800 rounded-md transition-colors">
-            <ChevronLeft className="w-5 h-5 text-zinc-500" />
-          </button>
+        <Settings2 className="h-4 w-4" />
+        Config
+      </button>
+    </header>
+
+    <main className="mx-auto max-w-7xl px-5 pb-12 pt-6">
+      <section>
+        <div className="max-w-3xl">
+          <p className="text-sm font-medium uppercase tracking-[0.18em] text-stone-500">Library</p>
+          <h2 className="mt-3 text-4xl font-semibold leading-tight tracking-normal md:text-6xl">Choose a book from the shelf.</h2>
+          <p className="mt-5 max-w-2xl text-lg leading-8 text-stone-600">
+            Upload a source book, keep the original page visible, and generate a facing translation when you read.
+          </p>
         </div>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
-          <SceneManager 
-            scenes={config.scenes} 
-            activeId={activeSceneId} 
-            onSelect={setActiveSceneId}
-            onDelete={deleteScene}
-          />
-        </div>
+        <div className="mt-10 rounded-md border border-stone-300 bg-[#e8ddca] px-5 py-6 shadow-inner">
+          <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+            <UploadCoverTile isParsing={isParsing || isLibraryLoading} onFileUpload={onFileUpload} />
+            {books.map((book) => {
+              const translatedCount = Object.keys(translatedSegmentsByBook[book.id] || {}).length;
+              const progress = Math.round((translatedCount / book.segments.length) * 100);
 
-        <div className="p-4 border-t border-zinc-800 bg-[#141414] shrink-0">
-          <button 
-            onClick={addScene}
-            className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl flex items-center justify-center gap-2 transition-all font-medium border border-zinc-700 shadow-lg"
-          >
-            <Plus className="w-4 h-4" />
-            Add Scene
-          </button>
-        </div>
-      </motion.div>
-
-      <div className="flex-1 flex flex-col relative overflow-hidden">
-        {!isSidebarOpen && (
-          <button 
-            onClick={() => setIsSidebarOpen(true)}
-            className="absolute top-6 left-6 z-50 p-2 bg-zinc-800 rounded-full border border-zinc-700 shadow-xl"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        )}
-
-        <header className="h-16 border-b border-zinc-800 bg-[#0c0c0c]/80 backdrop-blur-md flex items-center justify-between px-8 shrink-0 z-40">
-          <div className="flex items-center gap-4">
-            <input 
-              value={config.title}
-              onChange={e => setConfig(prev => ({...prev, title: e.target.value}))}
-              className="bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-2 py-1 text-sm font-medium w-48"
-              placeholder="Enter story title..."
-            />
-            <div className="h-4 w-[1px] bg-zinc-700" />
-            <div className="flex items-center gap-2 text-xs text-zinc-400">
-              <FileText className="w-4 h-4" />
-              <span>{config.scenes.length} Scenes</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 relative">
-            <label className="cursor-pointer px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-sm transition-all flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              Import TXT
-              <input type="file" accept=".txt" onChange={handleFileUpload} className="hidden" />
-            </label>
-            
-            <div className="relative">
-              <button 
-                onClick={() => setShowExportMenu(!showExportMenu)}
-                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-all flex items-center gap-2 shadow-lg shadow-indigo-500/20"
-              >
-                <Download className="w-4 h-4" />
-                Export
-              </button>
-              
-              <AnimatePresence>
-                {showExportMenu && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute right-0 top-full mt-2 w-64 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl p-2 z-50 overflow-hidden"
-                  >
-                    <div className="px-3 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-800 mb-1">
-                      Native Export
-                    </div>
-                    <button 
-                      onClick={exportImage}
-                      className="w-full text-left px-3 py-2 hover:bg-zinc-800 rounded-lg text-sm flex items-center gap-3 transition-colors"
-                    >
-                      <ImageIcon className="w-4 h-4 text-emerald-400" />
-                      <span>Single Frame (JPG)</span>
-                    </button>
-                    <button 
-                      onClick={exportLocalVideo}
-                      className="w-full text-left px-3 py-2 hover:bg-zinc-800 rounded-lg text-sm flex items-center gap-3 transition-colors group"
-                    >
-                      <Monitor className="w-4 h-4 text-blue-400 group-hover:scale-110 transition-transform" />
-                      <span>Record to WebM</span>
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
-        </header>
-
-        <main className="flex-1 flex overflow-hidden">
-          <section className="flex-1 relative flex flex-col bg-[#050505]">
-            <div className="flex-1 flex items-center justify-center p-12 overflow-hidden">
-              <div 
-                ref={previewRef}
-                className="w-[1024px] h-[576px] rounded-3xl overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.5)] border border-white/5 relative bg-black"
-                style={{ width: '1024px', height: '576px' }}
-              >
-                <PreviewCanvas 
-                  scene={activeScene} 
-                  isPlaying={isPlaying} 
-                  playSessionId={playSessionId}
+              return (
+                <BookCoverTile
+                  key={book.id}
+                  book={book}
+                  translatedCount={translatedCount}
+                  progress={progress}
+                  bookmarks={bookmarks.filter((bookmark) => belongsToBook(bookmark, book))}
+                  onOpenReader={() => onOpenBook(book.id)}
+                  onOpenBookmark={onOpenBookmark}
                 />
-              </div>
-            </div>
+              );
+            })}
+          </div>
+          {isLibraryLoading && <p className="mt-4 text-sm text-stone-600">Loading saved shelf...</p>}
+        </div>
 
-            <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-zinc-900/90 backdrop-blur-xl px-6 py-3 rounded-2xl border border-zinc-800 shadow-2xl z-50">
-              <button 
-                onClick={togglePlayback}
-                className={`w-12 h-12 flex items-center justify-center rounded-full transition-all shadow-xl ${isPlaying ? 'bg-red-500 hover:bg-red-600' : 'bg-indigo-600 hover:bg-indigo-500'}`}
-              >
-                {isPlaying ? <Square className="w-4 h-4 fill-white" /> : <Play className="w-5 h-5 fill-white" />}
-              </button>
-              <div className="flex flex-col min-w-[140px]">
-                <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">
-                  {isPlaying ? 'Live Preview' : 'Scene Editor'}
-                </span>
-                <span className="text-sm font-medium">
-                  {isPlaying 
-                    ? `Scene ${currentPlayIndex + 1} of ${config.scenes.length}` 
-                    : `Editing Scene ${config.scenes.findIndex(s => s.id === activeSceneId) + 1}`
-                  }
-                </span>
-              </div>
-            </div>
+        <StatusMessage statusMessage={statusMessage} errorMessage={errorMessage} />
+      </section>
+    </main>
+
+    {isConfigOpen && (
+      <ConfigDialog
+        motherLanguage={motherLanguage}
+        settings={settings}
+        isTestingProvider={isTestingProvider}
+        providerStatus={providerStatus}
+        errorMessage={errorMessage}
+        onMotherLanguageChange={onMotherLanguageChange}
+        onSettingsChange={onSettingsChange}
+        onProviderChange={onProviderChange}
+        onClose={onCloseConfig}
+        onTestProvider={onTestProvider}
+      />
+    )}
+  </div>
+);
+
+interface ConfigDialogProps {
+  motherLanguage: string;
+  settings: LlmSettings;
+  isTestingProvider: boolean;
+  providerStatus: string;
+  errorMessage: string;
+  onMotherLanguageChange: (language: string) => void;
+  onSettingsChange: <K extends keyof LlmSettings>(key: K, value: LlmSettings[K]) => void;
+  onProviderChange: (providerId: string) => void;
+  onClose: () => void;
+  onTestProvider: () => void;
+}
+
+const ConfigDialog: React.FC<ConfigDialogProps> = ({
+  motherLanguage,
+  settings,
+  isTestingProvider,
+  providerStatus,
+  errorMessage,
+  onMotherLanguageChange,
+  onSettingsChange,
+  onProviderChange,
+  onClose,
+  onTestProvider,
+}) => {
+  const selectedProvider = PROVIDER_PRESETS.find((provider) => provider.id === settings.provider) || PROVIDER_PRESETS[0];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/35 px-4 py-6 backdrop-blur-sm">
+      <section className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-md border border-stone-300 bg-[#fffdf8] p-5 shadow-2xl">
+        <div className="mb-5 flex items-center justify-between gap-3 border-b border-stone-200 pb-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-stone-950 text-[#f5f1e8]">
+            <Settings2 className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-semibold">Reading & Translation Config</h2>
+            <p className="text-sm text-stone-600">Choose provider, model, endpoint, and prompt.</p>
+          </div>
+          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-stone-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="grid gap-5 md:grid-cols-2">
+          <section className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
+            <Languages className="h-4 w-4" />
+            Mother Language
+          </div>
+          <select
+            value={motherLanguage}
+            onChange={(event) => onMotherLanguageChange(event.target.value)}
+            className="h-10 w-full rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+          >
+            {MOTHER_LANGUAGES.map((language) => (
+              <option key={language} value={language}>
+                {language}
+              </option>
+            ))}
+          </select>
+          <input
+            value={motherLanguage}
+            onChange={(event) => onMotherLanguageChange(event.target.value)}
+            className="h-10 w-full rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+            placeholder="Or type another language"
+          />
           </section>
 
-          <aside className="w-96 border-l border-zinc-800 bg-[#0f0f0f] flex flex-col overflow-y-auto custom-scrollbar">
-            <div className="p-6 border-b border-zinc-800 flex items-center gap-2 text-zinc-400 uppercase text-[10px] font-bold tracking-widest">
-              <Settings className="w-3 h-3" />
-              Global Settings
+          <section className="space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
+              <Sparkles className="h-4 w-4" />
+              Provider
             </div>
-            
-            <div className="p-6 border-b border-zinc-800 space-y-4">
-               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-tight">Global Transition ({config.globalTransition}s)</span>
-                </div>
-                <input 
-                  type="range" min="0" max="5" step="0.1"
-                  value={config.globalTransition}
-                  onChange={e => setConfig(prev => ({...prev, globalTransition: parseFloat(e.target.value)}))}
-                  className="w-full accent-indigo-500"
-                />
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-tight">Reading Buffer ({config.readingBuffer}s)</span>
-                </div>
-                <input 
-                  type="range" min="0" max="10" step="0.1"
-                  value={config.readingBuffer}
-                  onChange={e => setConfig(prev => ({...prev, readingBuffer: parseFloat(e.target.value)}))}
-                  className="w-full accent-indigo-500"
-                />
-              </div>
-            </div>
+            <select
+              value={settings.provider}
+              onChange={(event) => onProviderChange(event.target.value)}
+              className="h-10 w-full rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+            >
+              {PROVIDER_PRESETS.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={settings.model}
+              onChange={(event) => onSettingsChange('model', event.target.value)}
+              className="h-10 w-full rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+            >
+              {selectedProvider.models.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </section>
+        </div>
 
-            <div className="p-6 border-b border-zinc-800 flex items-center gap-2 text-zinc-400 uppercase text-[10px] font-bold tracking-widest">
-              <Layers className="w-3 h-3" />
-              Active Scene Properties
-            </div>
-            
-            <div className="p-6 space-y-8">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-indigo-400" />
-                    AI Visual Tuning
-                  </label>
-                  {isAnalyzing && <span className="text-[10px] animate-pulse text-indigo-400">Thinking...</span>}
-                </div>
-                <button 
-                  onClick={handleAIAnalyze}
-                  disabled={isAnalyzing}
-                  className="w-full py-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 rounded-lg text-sm font-medium transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  Apply AI Style
-                </button>
-              </div>
+        <section className="mt-6 border-t border-stone-200 pt-5">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-stone-800">
+            <KeyRound className="h-4 w-4" />
+            OpenAI-Compatible API
+          </div>
+          <SettingsField label="Endpoint" value={settings.endpoint} onChange={(value) => onSettingsChange('endpoint', value)} />
+          <SettingsField label="API Key" value={settings.apiKey} onChange={(value) => onSettingsChange('apiKey', value)} type="password" />
+          <SettingsField label="Model" value={settings.model} onChange={(value) => onSettingsChange('model', value)} />
+          <label className="mt-3 flex items-center gap-2 text-sm text-stone-700">
+            <input
+              type="checkbox"
+              checked={settings.useJsonMode}
+              onChange={(event) => onSettingsChange('useJsonMode', event.target.checked)}
+              className="h-4 w-4 accent-stone-950"
+            />
+            Request JSON mode when provider supports it
+          </label>
+          <label className="mt-3 block">
+            <span className="text-xs font-medium text-stone-600">System Prompt</span>
+            <textarea
+              value={settings.systemPrompt}
+              onChange={(event) => onSettingsChange('systemPrompt', event.target.value)}
+              className="mt-1 h-40 w-full resize-none rounded-md border border-stone-300 bg-[#fbf8f1] p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-stone-400"
+            />
+          </label>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              onClick={onTestProvider}
+              disabled={isTestingProvider}
+              className="flex h-10 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-[#fffdf8] hover:bg-stone-800 disabled:cursor-wait disabled:opacity-50"
+            >
+              {isTestingProvider ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Test
+            </button>
+            {providerStatus && <span className="text-sm text-emerald-700">{providerStatus}</span>}
+          </div>
+        </section>
 
-              <EditorPanel 
-                scene={activeScene} 
-                onChange={updateScene} 
-              />
-            </div>
-          </aside>
-        </main>
-      </div>
+        <StatusMessage statusMessage="" errorMessage={errorMessage} />
+      </section>
     </div>
   );
+};
+
+interface ReaderViewProps {
+  book: UploadedBook;
+  motherLanguage: string;
+  activeSegmentIndex: number;
+  activeSegment: UploadedBook['segments'][number];
+  activeTranslation: TranslatedSegment | null;
+  progress: number;
+  isTranslating: boolean;
+  statusMessage: string;
+  errorMessage: string;
+  onBack: () => void;
+  onPrevious: () => void;
+  onNext: () => void;
+  onTranslateCurrent: () => void;
+  onTranslateNext: () => void;
+  isBookmarked: boolean;
+  highlights: Highlight[];
+  knowledgeCards: KnowledgeCard[];
+  onToggleBookmark: () => void;
+  onAddHighlight: (pageSide: Highlight['pageSide']) => void;
+  onCreateKnowledgeCard: (pageSide: Highlight['pageSide']) => void;
+  rightPaneMode: 'translation' | 'notes';
+  onRightPaneModeChange: (mode: 'translation' | 'notes') => void;
+  note: ReaderNote | null;
+  onNoteChange: (body: string) => void;
+  onRespondToNote: () => void;
+  isRespondingToNote: boolean;
+}
+
+const ReaderView: React.FC<ReaderViewProps> = ({
+  book,
+  motherLanguage,
+  activeSegmentIndex,
+  activeSegment,
+  activeTranslation,
+  progress,
+  isTranslating,
+  statusMessage,
+  errorMessage,
+  onBack,
+  onPrevious,
+  onNext,
+  onTranslateCurrent,
+  onTranslateNext,
+  isBookmarked,
+  highlights,
+  knowledgeCards,
+  onToggleBookmark,
+  onAddHighlight,
+  onCreateKnowledgeCard,
+  rightPaneMode,
+  onRightPaneModeChange,
+  note,
+  onNoteChange,
+  onRespondToNote,
+  isRespondingToNote,
+}) => (
+  <div className="flex min-h-screen flex-col bg-[#f2eadc] text-stone-950">
+    <header className="sticky top-0 z-20 border-b border-stone-300/70 bg-[#f2eadc]/95 backdrop-blur">
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 md:px-6">
+        <button onClick={onBack} className="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-stone-700 hover:bg-stone-200/60">
+          <ArrowLeft className="h-4 w-4" />
+          Library
+        </button>
+        <div className="min-w-0 px-4 text-center">
+          <p className="truncate text-sm font-semibold">{book.title}</p>
+          <p className="text-xs text-stone-500">{activeSegment.label || `Page ${activeSegmentIndex + 1}`}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onToggleBookmark}
+            className={`flex h-9 w-9 items-center justify-center rounded-md border ${
+              isBookmarked ? 'border-amber-400 bg-amber-100 text-amber-800' : 'border-stone-300 bg-[#fffdf8] text-stone-700'
+            }`}
+            title={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
+          >
+            <BookmarkIcon className={`h-4 w-4 ${isBookmarked ? 'fill-current' : ''}`} />
+          </button>
+          <button
+            onClick={onTranslateCurrent}
+            disabled={isTranslating}
+            className="flex h-9 items-center gap-2 rounded-md bg-stone-950 px-3 text-sm font-medium text-[#fffdf8] hover:bg-stone-800 disabled:cursor-wait disabled:opacity-50"
+          >
+            {isTranslating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            Translate
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main className="flex-1 px-3 py-5 md:px-6">
+      <div className="mx-auto max-w-7xl">
+        <div className="grid min-h-[calc(100vh-150px)] gap-4 lg:grid-cols-2">
+          <BookPage
+            eyebrow="Original"
+            title={activeSegment.sourceLanguage}
+            body={activeSegment.sourceText}
+            footnotes={activeSegment.footnotes}
+            pageNumber={activeSegmentIndex * 2 + 1}
+            pdfUrl={book.fileType === 'pdf' ? book.sourceUrl : undefined}
+            pdfData={book.fileType === 'pdf' ? book.sourceData : undefined}
+            pdfPage={activeSegment.firstPage}
+            highlights={highlights.filter((highlight) => highlight.pageSide === 'original')}
+            knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'original')}
+            onAddHighlight={() => onAddHighlight('original')}
+            onCreateKnowledgeCard={() => onCreateKnowledgeCard('original')}
+          />
+          <RightReaderPane
+            motherLanguage={motherLanguage}
+            activeTranslation={activeTranslation}
+            mode={rightPaneMode}
+            note={note}
+            pageNumber={activeSegmentIndex * 2 + 2}
+            highlights={highlights.filter((highlight) => highlight.pageSide === 'translation')}
+            knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'translation')}
+            onModeChange={onRightPaneModeChange}
+            onAddHighlight={() => onAddHighlight('translation')}
+            onCreateKnowledgeCard={() => onCreateKnowledgeCard('translation')}
+            onNoteChange={onNoteChange}
+            onRespondToNote={onRespondToNote}
+            isRespondingToNote={isRespondingToNote}
+          />
+        </div>
+      </div>
+    </main>
+
+    <footer className="border-t border-stone-300/70 bg-[#f2eadc]/95 px-4 py-3 backdrop-blur md:px-6">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onPrevious}
+            disabled={activeSegmentIndex === 0}
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-stone-300 bg-[#fffdf8] text-stone-700 disabled:cursor-not-allowed disabled:opacity-40"
+            title="Previous page"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            onClick={onNext}
+            disabled={activeSegmentIndex === book.segments.length - 1}
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-stone-300 bg-[#fffdf8] text-stone-700 disabled:cursor-not-allowed disabled:opacity-40"
+            title="Next page"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="min-w-[180px] flex-1 md:max-w-md">
+          <div className="h-1.5 overflow-hidden rounded-full bg-stone-300">
+            <div className="h-full rounded-full bg-stone-950" style={{ width: `${progress}%` }} />
+          </div>
+          <p className="mt-1 text-center text-xs text-stone-500">
+            {activeSegmentIndex + 1} / {book.segments.length} · {progress}% translated
+          </p>
+        </div>
+
+        <button
+          onClick={onTranslateNext}
+          disabled={isTranslating}
+          className="flex h-9 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 hover:bg-white disabled:cursor-wait disabled:opacity-50"
+        >
+          <Play className="h-4 w-4" />
+          Next 3
+        </button>
+      </div>
+      <div className="mx-auto mt-2 max-w-7xl">
+        <StatusMessage statusMessage={statusMessage} errorMessage={errorMessage} compact />
+      </div>
+    </footer>
+  </div>
+);
+
+interface UploadCoverTileProps {
+  isParsing: boolean;
+  onFileUpload: (files: FileList | File[] | null) => void;
+}
+
+const UploadCoverTile: React.FC<UploadCoverTileProps> = ({ isParsing, onFileUpload }) => (
+  <label className="group block cursor-pointer">
+    <div className="flex aspect-[2/3] flex-col items-center justify-center rounded-sm border border-dashed border-stone-500 bg-[#d8cab3] p-4 text-center shadow-[6px_8px_0_rgba(80,63,42,0.16)] transition group-hover:-translate-y-1 group-hover:bg-[#e4d7c0]">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#fffdf8] text-stone-700 shadow-sm">
+        {isParsing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Upload className="h-6 w-6" />}
+      </div>
+      <p className="mt-5 text-sm font-semibold text-stone-900">Add Book</p>
+      <p className="mt-2 max-w-24 text-xs leading-5 text-stone-600">PDF TXT EPUB</p>
+    </div>
+    <input
+      type="file"
+      accept=".txt,.pdf,.epub,application/pdf,text/plain,application/epub+zip"
+      multiple
+      className="hidden"
+      onChange={(event) => {
+        onFileUpload(event.target.files || null);
+        event.currentTarget.value = '';
+      }}
+    />
+  </label>
+);
+
+interface BookCoverTileProps {
+  book: UploadedBook | null;
+  translatedCount: number;
+  progress: number;
+  bookmarks: Bookmark[];
+  onOpenReader: () => void;
+  onOpenBookmark: (bookmark: Bookmark) => void;
+}
+
+const BookCoverTile: React.FC<BookCoverTileProps> = ({ book, translatedCount, progress, bookmarks, onOpenReader, onOpenBookmark }) => (
+  <article className="group">
+    <button
+      onClick={onOpenReader}
+      disabled={!book}
+      className="flex aspect-[2/3] w-full flex-col justify-between overflow-hidden rounded-sm border border-stone-700 bg-stone-900 p-4 text-left text-[#fffdf8] shadow-[6px_8px_0_rgba(80,63,42,0.2)] transition hover:-translate-y-1 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-300">
+          {book?.fileType ? book.fileType.toUpperCase() : 'Empty'}
+        </p>
+        <h3 className="mt-5 max-h-32 overflow-hidden text-xl font-semibold leading-tight">
+          {book?.title || 'Upload a book to begin'}
+        </h3>
+        <p className="mt-3 max-h-10 overflow-hidden text-xs leading-5 text-stone-300">
+          {book?.author || book?.fileName || 'Source file'}
+        </p>
+      </div>
+      <div>
+        <div className="mb-2 h-1 overflow-hidden rounded-full bg-white/20">
+          <div className="h-full rounded-full bg-[#f2eadc]" style={{ width: `${progress}%` }} />
+        </div>
+        <p className="text-xs text-stone-300">
+          {book ? `${translatedCount}/${book.segments.length} translated` : 'No active book'}
+        </p>
+      </div>
+    </button>
+    {bookmarks.length > 0 && (
+      <div className="mt-3 space-y-1">
+        {bookmarks.slice(-3).map((bookmark) => (
+          <button
+            key={bookmark.id}
+            onClick={() => onOpenBookmark(bookmark)}
+            className="flex w-full items-center gap-2 rounded px-1 py-1 text-left text-xs text-stone-700 hover:bg-[#fffdf8]"
+          >
+            <BookmarkIcon className="h-3.5 w-3.5 fill-current text-amber-600" />
+            <span className="truncate">{bookmark.label}</span>
+          </button>
+        ))}
+      </div>
+    )}
+  </article>
+);
+
+interface BookPageProps {
+  eyebrow: string;
+  title: string;
+  body: string;
+  footnotes: string[];
+  pageNumber: number;
+  pdfUrl?: string;
+  pdfData?: ArrayBuffer;
+  pdfPage?: number;
+  highlights: Highlight[];
+  knowledgeCards: KnowledgeCard[];
+  onAddHighlight: () => void;
+  onCreateKnowledgeCard: () => void;
+  muted?: boolean;
+}
+
+const BookPage: React.FC<BookPageProps> = ({
+  eyebrow,
+  title,
+  body,
+  footnotes,
+  pageNumber,
+  pdfUrl,
+  pdfData,
+  pdfPage,
+  highlights,
+  knowledgeCards,
+  onAddHighlight,
+  onCreateKnowledgeCard,
+  muted,
+}) => (
+  <article className="flex min-h-[680px] flex-col rounded-sm border border-stone-300 bg-[#fffdf8] px-7 py-6 shadow-[0_18px_60px_rgba(68,54,34,0.13)] md:px-10">
+    <div className="mb-6 flex items-center justify-between gap-3 border-b border-stone-200 pb-4">
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">{eyebrow}</p>
+        <h2 className="mt-1 text-sm font-medium text-stone-700">{title}</h2>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onAddHighlight}
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
+          title="Highlight selected text"
+        >
+          <Highlighter className="h-4 w-4" />
+        </button>
+        <button
+          onClick={onCreateKnowledgeCard}
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
+          title="Create knowledge card from selected text"
+        >
+          <FileText className="h-4 w-4" />
+        </button>
+        <span className="text-xs text-stone-400">{pageNumber}</span>
+      </div>
+    </div>
+
+    {pdfUrl ? (
+      <div className="flex-1 overflow-auto rounded-sm border border-stone-200 bg-stone-100 p-3">
+        <PdfCanvasPage source={pdfData || pdfUrl} pageNumber={pdfPage || 1} />
+      </div>
+    ) : (
+      <FormattedReadingText text={body} muted={muted} />
+    )}
+
+    <div className="mt-6 min-h-24 border-t border-stone-200 pt-4">
+      {highlights.length > 0 && (
+        <div className="mb-4 space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Highlights</p>
+          {highlights.map((highlight) => (
+            <p key={highlight.id} className="rounded-sm bg-yellow-100 px-2 py-1 text-xs leading-5 text-stone-700">
+              {highlight.text}
+            </p>
+          ))}
+        </div>
+      )}
+      {knowledgeCards.length > 0 && (
+        <div className="mb-4 space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Knowledge Cards</p>
+          {knowledgeCards.map((card) => (
+            <p key={card.id} className="rounded-sm border border-stone-200 bg-white px-2 py-1 text-xs leading-5 text-stone-700">
+              {card.excerpt}
+            </p>
+          ))}
+        </div>
+      )}
+      {footnotes.length ? (
+        <ol className="space-y-2 text-xs leading-5 text-stone-600">
+          {footnotes.map((note, index) => (
+            <li key={`${note}-${index}`} className="grid grid-cols-[24px_1fr] gap-2">
+              <span className="text-stone-400">{index + 1}</span>
+              <span>{note}</span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="text-xs italic text-stone-400">
+          {pdfUrl ? 'Original notes remain visible in the PDF page above.' : 'No footnotes on this page.'}
+        </p>
+      )}
+    </div>
+  </article>
+);
+
+interface RightReaderPaneProps {
+  motherLanguage: string;
+  activeTranslation: TranslatedSegment | null;
+  mode: 'translation' | 'notes';
+  note: ReaderNote | null;
+  pageNumber: number;
+  highlights: Highlight[];
+  knowledgeCards: KnowledgeCard[];
+  onModeChange: (mode: 'translation' | 'notes') => void;
+  onAddHighlight: () => void;
+  onCreateKnowledgeCard: () => void;
+  onNoteChange: (body: string) => void;
+  onRespondToNote: () => void;
+  isRespondingToNote: boolean;
+}
+
+const RightReaderPane: React.FC<RightReaderPaneProps> = ({
+  motherLanguage,
+  activeTranslation,
+  mode,
+  note,
+  pageNumber,
+  highlights,
+  knowledgeCards,
+  onModeChange,
+  onAddHighlight,
+  onCreateKnowledgeCard,
+  onNoteChange,
+  onRespondToNote,
+  isRespondingToNote,
+}) => (
+  <article className="flex min-h-[680px] flex-col rounded-sm border border-stone-300 bg-[#fffdf8] px-7 py-6 shadow-[0_18px_60px_rgba(68,54,34,0.13)] md:px-10">
+    <div className="mb-6 flex items-center justify-between gap-3 border-b border-stone-200 pb-4">
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
+          {mode === 'translation' ? `Translation · ${motherLanguage}` : 'Notes'}
+        </p>
+        <h2 className="mt-1 text-sm font-medium text-stone-700">
+          {mode === 'translation' ? (activeTranslation ? 'Generated translation' : 'Waiting for translation') : 'Reader notebook'}
+        </h2>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="flex rounded-md border border-stone-300 bg-[#f7f3ea] p-1">
+          {(['translation', 'notes'] as const).map((item) => (
+            <button
+              key={item}
+              onClick={() => onModeChange(item)}
+              className={`h-7 rounded px-2 text-xs font-medium capitalize ${
+                mode === item ? 'bg-stone-950 text-white' : 'text-stone-600 hover:bg-stone-200'
+              }`}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+        {mode === 'translation' && (
+          <>
+            <button
+              onClick={onAddHighlight}
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
+              title="Highlight selected text"
+            >
+              <Highlighter className="h-4 w-4" />
+            </button>
+            <button
+              onClick={onCreateKnowledgeCard}
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
+              title="Create knowledge card from selected text"
+            >
+              <FileText className="h-4 w-4" />
+            </button>
+          </>
+        )}
+        <span className="text-xs text-stone-400">{pageNumber}</span>
+      </div>
+    </div>
+
+    {mode === 'translation' ? (
+      <>
+        <FormattedReadingText
+          text={activeTranslation?.translatedText || 'Use Translate to create the facing page for this section.'}
+          muted={!activeTranslation}
+        />
+        <div className="mt-6 min-h-24 border-t border-stone-200 pt-4">
+          {highlights.length > 0 && (
+            <div className="mb-4 space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Highlights</p>
+              {highlights.map((highlight) => (
+                <p key={highlight.id} className="rounded-sm bg-yellow-100 px-2 py-1 text-xs leading-5 text-stone-700">
+                  {highlight.text}
+                </p>
+              ))}
+            </div>
+          )}
+          {knowledgeCards.length > 0 && (
+            <div className="mb-4 space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Knowledge Cards</p>
+              {knowledgeCards.map((card) => (
+                <p key={card.id} className="rounded-sm border border-stone-200 bg-white px-2 py-1 text-xs leading-5 text-stone-700">
+                  {card.excerpt}
+                </p>
+              ))}
+            </div>
+          )}
+          {activeTranslation ? (
+            <ol className="space-y-2 text-xs leading-5 text-stone-600">
+              {buildTranslationNotes(activeTranslation).map((item, index) => (
+                <li key={`${item}-${index}`} className="grid grid-cols-[24px_1fr] gap-2">
+                  <span className="text-stone-400">{index + 1}</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-xs italic text-stone-400">No translation notes yet.</p>
+          )}
+        </div>
+      </>
+    ) : (
+      <div className="flex flex-1 flex-col">
+        <textarea
+          value={note?.body || ''}
+          onChange={(event) => onNoteChange(event.target.value)}
+          className="min-h-72 flex-1 resize-none rounded-sm border border-stone-300 bg-[#fbf8f1] p-4 text-base leading-7 outline-none focus:ring-2 focus:ring-stone-400"
+          placeholder="Write a note, question, connection, or interpretation..."
+        />
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <button
+            onClick={onRespondToNote}
+            disabled={isRespondingToNote}
+            className="flex h-10 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-[#fffdf8] hover:bg-stone-800 disabled:cursor-wait disabled:opacity-50"
+          >
+            {isRespondingToNote ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            LLM Respond
+          </button>
+        </div>
+        {note?.llmResponse && (
+          <div className="mt-5 whitespace-pre-wrap rounded-sm border border-stone-300 bg-white p-4 text-sm leading-6 text-stone-700">
+            {note.llmResponse}
+          </div>
+        )}
+      </div>
+    )}
+  </article>
+);
+
+interface PdfCanvasPageProps {
+  source: string | ArrayBuffer;
+  pageNumber: number;
+}
+
+const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const renderRequestRef = useRef(0);
+  const [isRendering, setIsRendering] = useState(false);
+  const [renderError, setRenderError] = useState('');
+  const [pageLayout, setPageLayout] = useState<{
+    width: number;
+    height: number;
+    textItems: Array<{ str: string; left: number; top: number; width: number; height: number }>;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let resizeTimer: number | undefined;
+
+    const render = async () => {
+      if (!wrapperRef.current || !canvasRef.current) {
+        return;
+      }
+
+      setIsRendering(true);
+      setRenderError('');
+      const requestId = (renderRequestRef.current += 1);
+
+      try {
+        const layout = await renderPdfPageToCanvas(source, pageNumber, canvasRef.current, wrapperRef.current.clientWidth - 24);
+        if (!cancelled && requestId === renderRequestRef.current) {
+          setPageLayout(layout);
+        }
+      } catch (error) {
+        if (!cancelled && requestId === renderRequestRef.current) {
+          setRenderError(error instanceof Error ? error.message : 'Could not render PDF page.');
+        }
+      } finally {
+        if (!cancelled && requestId === renderRequestRef.current) {
+          setIsRendering(false);
+        }
+      }
+    };
+
+    render();
+
+    const observer = new ResizeObserver(() => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(render, 120);
+    });
+
+    if (wrapperRef.current) {
+      observer.observe(wrapperRef.current);
+    }
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(resizeTimer);
+      observer.disconnect();
+    };
+  }, [source, pageNumber]);
+
+  return (
+    <div ref={wrapperRef} className="relative flex min-h-[520px] justify-center">
+      {isRendering && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-stone-100/70">
+          <Loader2 className="h-6 w-6 animate-spin text-stone-500" />
+        </div>
+      )}
+      {renderError ? (
+        <div className="flex min-h-[420px] items-center justify-center text-sm text-red-700">{renderError}</div>
+      ) : (
+        <div className="relative">
+          <canvas ref={canvasRef} className="max-w-full bg-white shadow-sm" />
+          {pageLayout && (
+            <div
+              className="absolute left-0 top-0 select-text text-transparent"
+              style={{ width: `${pageLayout.width}px`, height: `${pageLayout.height}px` }}
+            >
+              {pageLayout.textItems.map((item, index) => (
+                <span
+                  key={`${item.str}-${index}`}
+                  className="absolute whitespace-pre"
+                  style={{
+                    left: `${item.left}px`,
+                    top: `${item.top}px`,
+                    width: `${item.width}px`,
+                    height: `${item.height}px`,
+                    fontSize: `${item.height}px`,
+                    lineHeight: 1,
+                  }}
+                >
+                  {item.str}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface SettingsFieldProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+}
+
+const SettingsField: React.FC<SettingsFieldProps> = ({ label, value, onChange, type = 'text' }) => (
+  <label className="mt-3 block">
+    <span className="text-xs font-medium text-stone-600">{label}</span>
+    <input
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      type={type}
+      className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+    />
+  </label>
+);
+
+interface StatusMessageProps {
+  statusMessage: string;
+  errorMessage: string;
+  compact?: boolean;
+}
+
+const StatusMessage: React.FC<StatusMessageProps> = ({ statusMessage, errorMessage, compact }) => {
+  if (!statusMessage && !errorMessage) {
+    return null;
+  }
+
+  return (
+    <div
+      className={`${compact ? 'mt-0' : 'mt-5'} flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${
+        errorMessage ? 'border-red-300 bg-red-50 text-red-800' : 'border-emerald-300 bg-emerald-50 text-emerald-800'
+      }`}
+    >
+      {errorMessage ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
+      <span>{errorMessage || statusMessage}</span>
+    </div>
+  );
+};
+
+interface FormattedReadingTextProps {
+  text: string;
+  muted?: boolean;
+}
+
+const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({ text, muted }) => {
+  const lines = text.replace(/\r/g, '').split('\n');
+
+  return (
+    <div
+      className={`flex-1 overflow-y-auto whitespace-pre-wrap text-[1.08rem] leading-8 md:text-[1.16rem] md:leading-9 ${
+        muted ? 'text-stone-400' : 'text-stone-900'
+      }`}
+    >
+      {lines.map((line, index) => {
+        const trimmed = line.trim();
+        const previousBlank = index === 0 || !lines[index - 1].trim();
+        const nextBlank = index === lines.length - 1 || !lines[index + 1].trim();
+        const isHeading =
+          trimmed.length > 0 &&
+          trimmed.length <= 90 &&
+          (index < 8 || (previousBlank && nextBlank)) &&
+          !/[.!?,;:，。！？；：]$/.test(trimmed);
+
+        if (!trimmed) {
+          return <div key={`blank-${index}`} className="h-4" />;
+        }
+
+        if (isHeading) {
+          return (
+            <div key={`${line}-${index}`} className="mb-3 mt-5 text-center text-[1.18rem] font-semibold leading-8 text-stone-950">
+              {line}
+            </div>
+          );
+        }
+
+        return (
+          <div key={`${line}-${index}`} className="min-h-8">
+            {line}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const buildTranslationNotes = (translation: TranslatedSegment) => {
+  const notes = [...translation.keyTerms.map((term) => `${term.term}: ${term.explanation}`)];
+
+  if (translation.commentary) {
+    notes.push(translation.commentary);
+  }
+
+  if (translation.reflectionPrompt) {
+    notes.push(`Reflection: ${translation.reflectionPrompt}`);
+  }
+
+  return notes;
 };
 
 export default App;

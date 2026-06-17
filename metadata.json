@@ -1,5 +1,5 @@
 {
-  "name": "LuminaBook Visualizer",
-  "description": "A high-end cinematic text and book visualization tool. Transform any text file into a choreographed visual experience with sophisticated animations like typewriter, gradient-reveal, and cinematic fades. Tuned for creators and storytellers.",
+  "name": "LuminaBook Reader",
+  "description": "A reflective bilingual great-books reader. Upload a text-based PDF, TXT, or EPUB, choose a mother language, configure an OpenAI-compatible endpoint and prompt, then generate a left-right translation with contextual commentary.",
   "requestFramePermissions": []
 }

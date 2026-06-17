@@ -1,20 +1,27 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# LuminaBook Reader
 
-# Run and deploy your AI Studio app
+LuminaBook is a bilingual great-books reader for people reading across languages. The core idea is to upload a source book, generate a mother-language translation, and place original and translation side by side so compressed, ambiguous, or culturally loaded meanings remain visible.
 
-This contains everything you need to run your app locally.
+The current prototype includes:
 
-View your app in AI Studio: https://ai.studio/apps/drive/1MCIyjVzhvavqpfRmwvVXUBpRVMIopBMK
+- Upload TXT, text-based PDF, or EPUB files.
+- Choose or type the reader's mother language.
+- Configure an OpenAI-compatible endpoint, API key, model, and system prompt.
+- Generate left/right page translation for the active segment or the next five segments.
+- Render contextual commentary, key terms, and reflection prompts returned by the LLM.
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+Prerequisites: Node.js
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+   ```bash
+   npm install
+   ```
+
+2. Start the app:
+   ```bash
+   npm run dev
+   ```
+
+The API key is entered in the app because the prototype supports user-configured OpenAI-compatible endpoints. For production, proxy model calls through a backend so browser clients do not directly expose secrets.
