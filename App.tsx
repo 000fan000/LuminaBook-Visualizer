@@ -227,6 +227,10 @@ const getProfileUsageSummary = (profile: LlmProfile, records: LlmEvaluationRecor
   };
 };
 
+const CONTEXT_WINDOW_CHARS = 900;
+const getTrailingContext = (text: string) => text.slice(Math.max(0, text.length - CONTEXT_WINDOW_CHARS));
+const getLeadingContext = (text: string) => text.slice(0, CONTEXT_WINDOW_CHARS);
+
 const downloadJsonFile = (fileName: string, data: unknown) => {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -761,6 +765,23 @@ const App: React.FC = () => {
     }
   };
 
+  const getSegmentTranslationContext = (segment: UploadedBook['segments'][number]) => {
+    if (!book) {
+      return {};
+    }
+
+    const segmentIndex = book.segments.findIndex((item) => item.id === segment.id);
+    const previous = segmentIndex > 0 ? book.segments[segmentIndex - 1] : null;
+    const next = segmentIndex >= 0 && segmentIndex < book.segments.length - 1 ? book.segments[segmentIndex + 1] : null;
+
+    return {
+      previousLabel: previous ? getSourcePageLabel(previous) : '',
+      previousText: previous ? getTrailingContext(previous.sourceText) : '',
+      nextLabel: next ? getSourcePageLabel(next) : '',
+      nextText: next ? getLeadingContext(next.sourceText) : '',
+    };
+  };
+
   const translateCurrent = async () => {
     if (!activeSegment) {
       return;
@@ -773,7 +794,7 @@ const App: React.FC = () => {
     setStatusMessage(`Translating ${activeSegment.label || `page ${activeSegment.index + 1}`}...`);
 
     try {
-      const result = await translateSegment(activeSegment, motherLanguage, settings);
+      const result = await translateSegment(activeSegment, motherLanguage, settings, getSegmentTranslationContext(activeSegment));
       setTranslatedSegmentsByBook((current) => ({
         ...current,
         [book.id]: {
@@ -822,7 +843,7 @@ const App: React.FC = () => {
     try {
       for (const segment of pending) {
         setStatusMessage(`Translating ${segment.label || `page ${segment.index + 1}`}...`);
-        const result = await translateSegment(segment, motherLanguage, settings);
+        const result = await translateSegment(segment, motherLanguage, settings, getSegmentTranslationContext(segment));
         setTranslatedSegmentsByBook((current) => ({
           ...current,
           [book.id]: {
@@ -1645,6 +1666,18 @@ interface ReaderViewProps {
   isRespondingToNote: boolean;
 }
 
+function getSourcePageLabel(segment: UploadedBook['segments'][number]) {
+  if (segment.label) {
+    return segment.label;
+  }
+
+  if (segment.firstPage && segment.lastPage) {
+    return segment.firstPage === segment.lastPage ? `Page ${segment.firstPage}` : `Pages ${segment.firstPage}-${segment.lastPage}`;
+  }
+
+  return `Segment ${segment.index + 1}`;
+}
+
 const ReaderView: React.FC<ReaderViewProps> = ({
   book,
   motherLanguage,
@@ -1694,7 +1727,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
         </button>
         <div className="min-w-0 px-4 text-center">
           <p className="truncate text-sm font-semibold">{book.title}</p>
-          <p className="text-xs text-stone-500">{activeSegment.label || `Page ${activeSegmentIndex + 1}`}</p>
+          <p className="text-xs text-stone-500">{getSourcePageLabel(activeSegment)}</p>
         </div>
         <div className="flex items-center gap-2">
           <select
@@ -1739,7 +1772,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             title={activeSegment.sourceLanguage}
             body={activeSegment.sourceText}
             footnotes={activeSegment.footnotes}
-            pageNumber={activeSegmentIndex * 2 + 1}
+            pageLabel={getSourcePageLabel(activeSegment)}
             pdfUrl={book.fileType === 'pdf' ? book.sourceUrl : undefined}
             pdfData={book.fileType === 'pdf' ? book.sourceData : undefined}
             pdfPage={activeSegment.firstPage}
@@ -1758,7 +1791,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             readingThemes={readingThemes}
             mode={rightPaneMode}
             note={note}
-            pageNumber={activeSegmentIndex * 2 + 2}
+            pageLabel={getSourcePageLabel(activeSegment)}
             highlights={highlights.filter((highlight) => highlight.pageSide === 'translation')}
             knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'translation')}
             onModeChange={onRightPaneModeChange}
@@ -1908,7 +1941,7 @@ interface BookPageProps {
   title: string;
   body: string;
   footnotes: string[];
-  pageNumber: number;
+  pageLabel: string;
   pdfUrl?: string;
   pdfData?: ArrayBuffer;
   pdfPage?: number;
@@ -1925,7 +1958,7 @@ const BookPage: React.FC<BookPageProps> = ({
   title,
   body,
   footnotes,
-  pageNumber,
+  pageLabel,
   pdfUrl,
   pdfData,
   pdfPage,
@@ -1957,7 +1990,7 @@ const BookPage: React.FC<BookPageProps> = ({
         >
           <FileText className="h-4 w-4" />
         </button>
-        <span className="text-xs text-stone-400">{pageNumber}</span>
+        <span className="text-xs text-stone-400">{pageLabel}</span>
       </div>
     </div>
 
@@ -2022,7 +2055,7 @@ interface RightReaderPaneProps {
   readingThemes: ReadingTheme[];
   mode: RightPaneMode;
   note: ReaderNote | null;
-  pageNumber: number;
+  pageLabel: string;
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
   onModeChange: (mode: RightPaneMode) => void;
@@ -2046,7 +2079,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   readingThemes,
   mode,
   note,
-  pageNumber,
+  pageLabel,
   highlights,
   knowledgeCards,
   onModeChange,
@@ -2125,7 +2158,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
             </button>
           </>
         )}
-        <span className="text-xs text-stone-400">{pageNumber}</span>
+        <span className="text-xs text-stone-400">{pageLabel}</span>
       </div>
     </div>
 

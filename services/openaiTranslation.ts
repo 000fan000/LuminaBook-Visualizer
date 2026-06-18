@@ -381,6 +381,12 @@ export const translateSegment = async (
   segment: SourceSegment,
   motherLanguage: string,
   settings: LlmSettings,
+  context?: {
+    previousLabel?: string;
+    previousText?: string;
+    nextLabel?: string;
+    nextText?: string;
+  },
 ): Promise<TranslationResult> => {
   if (!settings.endpoint.trim() || !settings.apiKey.trim() || !settings.model.trim()) {
     throw new Error('Endpoint, API key, and model are required before translation.');
@@ -395,7 +401,15 @@ export const translateSegment = async (
       },
       {
         role: 'user',
-        content: `Translate this book segment into ${motherLanguage}.
+        content: `Translate ONLY the text inside <target_segment> into ${motherLanguage}.
+
+Critical boundary rules:
+- <target_segment> is the only source text that may appear in translatedText or layout.
+- <previous_context> and <next_context> are reference material only. They help you understand incomplete sentences, pronouns, concepts, and paragraph flow across page boundaries.
+- Never translate, summarize, quote, copy, paraphrase, or include content from <previous_context> or <next_context> in translatedText or layout.
+- Never include boundary labels such as "Previous context", "Next context", "for continuity only", "后文", "前文", page labels, or XML tag names in translatedText or layout.
+- If a sentence begins in <previous_context> and continues in <target_segment>, translate only the part that is present in <target_segment>, using the previous context only to choose accurate wording.
+- If a sentence begins in <target_segment> and continues in <next_context>, translate only the part that is present in <target_segment>, using the next context only to avoid mistranslation.
 
 Return JSON with exactly these fields:
 - translatedText: faithful literary translation into the reader's mother language
@@ -410,7 +424,7 @@ layout rules:
 - body: main translated content with paragraph and line breaks preserved
 - notes: array of translated footnotes, endnotes, marginal notes, or translator notes from this segment
 - footer: translated or copied page footer/page number, empty string if none
-- translatedText must combine the same content into a readable fallback plain text with visible line breaks.
+- translatedText must combine only translated <target_segment> content into a readable fallback plain text with visible line breaks.
 
 Formatting rules for translatedText:
 - Preserve title lines, headings, paragraph breaks, numbered lists, stanza breaks, and visible line breaks from the source as much as possible.
@@ -421,8 +435,17 @@ Formatting rules for translatedText:
 - Return newline characters inside the JSON string, not HTML.
 
 Source language hint: ${segment.sourceLanguage}
-Segment ${segment.index + 1}:
-${segment.sourceText}`,
+<target_segment index="${segment.index + 1}" label="${segment.label || `Segment ${segment.index + 1}`}">
+${segment.sourceText}
+</target_segment>
+
+<previous_context label="${context?.previousLabel || 'none'}" purpose="reference only; do not translate or output">
+${context?.previousText || '(none)'}
+</previous_context>
+
+<next_context label="${context?.nextLabel || 'none'}" purpose="reference only; do not translate or output">
+${context?.nextText || '(none)'}
+</next_context>`,
       },
     ],
     undefined,
