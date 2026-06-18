@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
-import { SourceSegment, UploadedBook } from '../types';
+import { SourceSegment, TocEntry, UploadedBook } from '../types';
 import { readPdfTextContent } from './pdfTextContent';
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -64,10 +64,333 @@ const getExtension = (fileName: string) => {
   return match?.[1] || '';
 };
 
+const dirname = (path: string) => {
+  const index = path.lastIndexOf('/');
+  return index === -1 ? '' : path.slice(0, index + 1);
+};
+
+const normalizePath = (path: string) => {
+  const parts: string[] = [];
+
+  for (const part of path.split('/')) {
+    if (!part || part === '.') {
+      continue;
+    }
+
+    if (part === '..') {
+      parts.pop();
+    } else {
+      parts.push(part);
+    }
+  }
+
+  return parts.join('/');
+};
+
+const normalizeEpubHref = (href: string, basePath = '') =>
+  decodeURIComponent(normalizePath(`${basePath}${href.split('#')[0] || ''}`)).toLowerCase();
+
+const findZipEntryByPath = (zip: JSZip, normalizedPath: string) =>
+  Object.values(zip.files).find((entry) => !entry.dir && normalizeEpubHref(entry.name) === normalizedPath);
+
+const getXmlElementsByLocalName = (root: Document | Element, localName: string) =>
+  Array.from(root.getElementsByTagName('*')).filter((element) => element.localName === localName);
+
+interface EpubPackageInfo {
+  spineHrefs: string[];
+  navHref?: string;
+  ncxHref?: string;
+}
+
+const readEpubPackageInfo = async (zip: JSZip): Promise<EpubPackageInfo | null> => {
+  const containerEntry = findZipEntryByPath(zip, 'meta-inf/container.xml');
+
+  if (!containerEntry) {
+    return null;
+  }
+
+  const containerDocument = new DOMParser().parseFromString(await containerEntry.async('text'), 'application/xml');
+  const opfPath = getXmlElementsByLocalName(containerDocument, 'rootfile')[0]?.getAttribute('full-path');
+
+  if (!opfPath) {
+    return null;
+  }
+
+  const opfEntry = findZipEntryByPath(zip, normalizeEpubHref(opfPath));
+
+  if (!opfEntry) {
+    return null;
+  }
+
+  const opfDocument = new DOMParser().parseFromString(await opfEntry.async('text'), 'application/xml');
+  const opfBasePath = dirname(opfEntry.name);
+  const manifestItems = getXmlElementsByLocalName(opfDocument, 'item').map((item) => {
+    const href = item.getAttribute('href') || '';
+
+    return {
+      id: item.getAttribute('id') || '',
+      href: href ? normalizeEpubHref(href, opfBasePath) : '',
+      mediaType: item.getAttribute('media-type') || '',
+      properties: item.getAttribute('properties') || '',
+    };
+  });
+  const manifestById = new Map(manifestItems.filter((item) => item.id && item.href).map((item) => [item.id, item]));
+  const spine = getXmlElementsByLocalName(opfDocument, 'spine')[0];
+  const spineHrefs = spine
+    ? Array.from(spine.children)
+        .filter((child) => child.localName === 'itemref')
+        .map((itemref) => manifestById.get(itemref.getAttribute('idref') || '')?.href)
+        .filter(Boolean) as string[]
+    : [];
+  const navHref = manifestItems.find((item) => item.properties.split(/\s+/).includes('nav'))?.href;
+  const spineTocId = spine?.getAttribute('toc') || '';
+  const ncxHref =
+    (spineTocId ? manifestById.get(spineTocId)?.href : undefined) ||
+    manifestItems.find((item) => item.mediaType === 'application/x-dtbncx+xml')?.href;
+
+  return {
+    spineHrefs,
+    navHref,
+    ncxHref,
+  };
+};
+
+const EPUB_BLOCK_TAGS = new Set([
+  'article',
+  'aside',
+  'blockquote',
+  'body',
+  'dd',
+  'div',
+  'dl',
+  'dt',
+  'figcaption',
+  'figure',
+  'footer',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'header',
+  'li',
+  'main',
+  'ol',
+  'p',
+  'pre',
+  'section',
+  'table',
+  'tbody',
+  'td',
+  'tfoot',
+  'th',
+  'thead',
+  'tr',
+  'ul',
+]);
+
+const hasHtmlText = (parts: string[]) => parts.some((part) => part.trim());
+
+const getTrailingHtmlBreakCount = (parts: string[]) => {
+  let count = 0;
+
+  for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+    const part = parts[partIndex];
+
+    for (let charIndex = part.length - 1; charIndex >= 0; charIndex -= 1) {
+      if (part[charIndex] !== '\n') {
+        return count;
+      }
+
+      count += 1;
+    }
+  }
+
+  return count;
+};
+
+const appendHtmlTextBreak = (parts: string[], count = 1) => {
+  const trailingBreaks = getTrailingHtmlBreakCount(parts);
+  const missingBreaks = Math.max(0, count - trailingBreaks);
+
+  if (missingBreaks > 0 && hasHtmlText(parts)) {
+    parts.push('\n'.repeat(missingBreaks));
+  }
+};
+
+const appendHtmlText = (parts: string[], value: string) => {
+  const text = value.replace(/\s+/g, ' ');
+
+  if (!text.trim()) {
+    return;
+  }
+
+  const previous = parts[parts.length - 1] || '';
+  const needsSpace =
+    previous &&
+    !/[\s\n]$/.test(previous) &&
+    !/^[,.;:!?，。！？；：、)\]}»”’]/.test(text) &&
+    !/[([{«“‘]$/.test(previous);
+
+  if (needsSpace) {
+    parts.push(' ');
+  }
+
+  parts.push(text);
+};
+
+const extractHtmlText = (node: Node, parts: string[]) => {
+  if (node.nodeType === Node.TEXT_NODE) {
+    appendHtmlText(parts, node.textContent || '');
+    return;
+  }
+
+  if (node.nodeType !== Node.ELEMENT_NODE) {
+    return;
+  }
+
+  const element = node as Element;
+  const tagName = element.tagName.toLowerCase();
+
+  if (tagName === 'script' || tagName === 'style' || tagName === 'nav') {
+    return;
+  }
+
+  if (tagName === 'br') {
+    appendHtmlTextBreak(parts, 1);
+    return;
+  }
+
+  if (tagName === 'hr') {
+    appendHtmlTextBreak(parts, 2);
+    return;
+  }
+
+  const isBlock = EPUB_BLOCK_TAGS.has(tagName);
+
+  if (isBlock && tagName !== 'body') {
+    appendHtmlTextBreak(parts, 2);
+  }
+
+  if (tagName === 'li') {
+    parts.push('- ');
+  }
+
+  element.childNodes.forEach((child) => extractHtmlText(child, parts));
+
+  if (tagName === 'li') {
+    appendHtmlTextBreak(parts, 1);
+    return;
+  }
+
+  if (isBlock) {
+    appendHtmlTextBreak(parts, 2);
+  }
+};
+
 const stripHtml = (html: string) => {
   const document = new DOMParser().parseFromString(html, 'text/html');
-  document.querySelectorAll('script, style, nav').forEach((node) => node.remove());
-  return document.body.textContent || '';
+  const parts: string[] = [];
+  extractHtmlText(document.body, parts);
+  return parts.join('');
+};
+
+const getElementText = (element: Element | null) => normalizeWhitespace(element?.textContent || '');
+
+const parseEpubNavToc = (html: string, basePath: string): TocEntry[] => {
+  const document = new DOMParser().parseFromString(html, 'text/html');
+  const nav =
+    document.querySelector('nav[epub\\:type~="toc"], nav[type~="toc"], nav[role="doc-toc"]') ||
+    Array.from(document.querySelectorAll('nav')).find((node) => /toc|contents/i.test(node.getAttribute('class') || node.id));
+
+  if (!nav) {
+    return [];
+  }
+
+  const entries: TocEntry[] = [];
+  const walkList = (list: Element, level: number) => {
+    Array.from(list.children)
+      .filter((child) => child.tagName.toLowerCase() === 'li')
+      .forEach((item) => {
+        const link = item.querySelector(':scope > a[href], :scope > span > a[href]') as HTMLAnchorElement | null;
+        const label = getElementText(link || item.querySelector(':scope > span'));
+        const href = link?.getAttribute('href') || '';
+
+        if (label) {
+          entries.push({
+            id: `toc-${entries.length}`,
+            title: label,
+            level,
+            href: href ? normalizeEpubHref(href, basePath) : undefined,
+          });
+        }
+
+        Array.from(item.children)
+          .filter((child) => child.tagName.toLowerCase() === 'ol' || child.tagName.toLowerCase() === 'ul')
+          .forEach((childList) => walkList(childList, level + 1));
+      });
+  };
+
+  nav.querySelectorAll(':scope > ol, :scope > ul').forEach((list) => walkList(list, 0));
+  return entries;
+};
+
+const parseEpubNcxToc = (xml: string, basePath: string): TocEntry[] => {
+  const document = new DOMParser().parseFromString(xml, 'application/xml');
+  const entries: TocEntry[] = [];
+
+  const walkNavPoint = (navPoint: Element, level: number) => {
+    const title = getElementText(navPoint.querySelector('navLabel text'));
+    const src = navPoint.querySelector('content')?.getAttribute('src') || '';
+
+    if (title) {
+      entries.push({
+        id: `toc-${entries.length}`,
+        title,
+        level,
+        href: src ? normalizeEpubHref(src, basePath) : undefined,
+      });
+    }
+
+    Array.from(navPoint.children)
+      .filter((child) => child.tagName === 'navPoint')
+      .forEach((child) => walkNavPoint(child, level + 1));
+  };
+
+  document.querySelectorAll('navMap > navPoint').forEach((navPoint) => walkNavPoint(navPoint, 0));
+  return entries;
+};
+
+const resolveEpubToc = async (zip: JSZip, htmlFiles: JSZip.JSZipObject[], packageInfo: EpubPackageInfo | null) => {
+  const navEntry = packageInfo?.navHref ? findZipEntryByPath(zip, packageInfo.navHref) : null;
+
+  if (navEntry) {
+    const toc = parseEpubNavToc(await navEntry.async('text'), dirname(navEntry.name));
+
+    if (toc.length) {
+      return toc;
+    }
+  }
+
+  for (const entry of htmlFiles) {
+    const html = await entry.async('text');
+    const toc = parseEpubNavToc(html, dirname(entry.name));
+
+    if (toc.length) {
+      return toc;
+    }
+  }
+
+  const ncxEntry =
+    (packageInfo?.ncxHref ? findZipEntryByPath(zip, packageInfo.ncxHref) : null) ||
+    Object.values(zip.files).find((entry) => !entry.dir && /\.ncx$/i.test(entry.name));
+
+  if (!ncxEntry) {
+    return [];
+  }
+
+  return parseEpubNcxToc(await ncxEntry.async('text'), dirname(ncxEntry.name));
 };
 
 const detectLanguage = (text: string) => {
@@ -166,6 +489,25 @@ const segmentText = (text: string): SourceSegment[] => {
   }));
 };
 
+const segmentEpubChapters = (chapters: Array<{ href: string; text: string }>): SourceSegment[] => {
+  const segments: SourceSegment[] = [];
+
+  for (const chapter of chapters) {
+    const chapterSegments = segmentText(chapter.text);
+
+    for (const segment of chapterSegments) {
+      segments.push({
+        ...segment,
+        id: `segment-${segments.length}`,
+        index: segments.length,
+        href: chapter.href,
+      });
+    }
+  }
+
+  return segments;
+};
+
 const readTxt = async (file: File) => normalizeReadableText(await file.text());
 
 const getItemFontHeight = (item: any) => {
@@ -251,8 +593,7 @@ const readPdfPageText = async (page: any) => {
   return normalizeReadableText(text);
 };
 
-const readPdf = async (buffer: ArrayBuffer) => {
-  const pdf = await getDocument({ data: buffer }).promise;
+const readPdfDocument = async (pdf: any) => {
   const pages: Array<{ pageNumber: number; text: string; footnotes: string[] }> = [];
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
@@ -266,6 +607,60 @@ const readPdf = async (buffer: ArrayBuffer) => {
   }
 
   return pages;
+};
+
+const getPdfDestinationPageNumber = async (pdf: any, dest: unknown): Promise<number | undefined> => {
+  let destination = dest;
+
+  if (typeof destination === 'string') {
+    destination = await pdf.getDestination(destination);
+  }
+
+  if (!Array.isArray(destination) || !destination[0]) {
+    return undefined;
+  }
+
+  const pageRef = destination[0];
+
+  if (typeof pageRef === 'number') {
+    return pageRef + 1;
+  }
+
+  try {
+    return (await pdf.getPageIndex(pageRef)) + 1;
+  } catch {
+    return undefined;
+  }
+};
+
+const readPdfToc = async (pdf: any): Promise<TocEntry[]> => {
+  const outline = await pdf.getOutline();
+
+  if (!outline?.length) {
+    return [];
+  }
+
+  const entries: TocEntry[] = [];
+
+  const walkOutline = async (items: any[], level: number) => {
+    for (const item of items) {
+      const pageNumber = await getPdfDestinationPageNumber(pdf, item.dest);
+
+      entries.push({
+        id: `toc-${entries.length}`,
+        title: normalizeWhitespace(item.title || 'Untitled'),
+        level,
+        pageNumber,
+      });
+
+      if (item.items?.length) {
+        await walkOutline(item.items, level + 1);
+      }
+    }
+  };
+
+  await walkOutline(outline, 0);
+  return entries.filter((entry) => entry.title);
 };
 
 const createPdfSegments = (pages: Array<{ pageNumber: number; text: string; footnotes: string[] }>): SourceSegment[] => {
@@ -293,24 +688,57 @@ const createPdfSegments = (pages: Array<{ pageNumber: number; text: string; foot
   return segments;
 };
 
+const attachPdfTocTargets = (toc: TocEntry[], segments: SourceSegment[]) =>
+  toc.map((entry) => ({
+    ...entry,
+    segmentIndex:
+      entry.pageNumber === undefined
+        ? undefined
+        : segments.find((segment) =>
+            segment.firstPage !== undefined &&
+            segment.lastPage !== undefined &&
+            entry.pageNumber! >= segment.firstPage &&
+            entry.pageNumber! <= segment.lastPage,
+          )?.index,
+  }));
+
+const attachEpubTocTargets = (toc: TocEntry[], segments: SourceSegment[]) =>
+  toc.map((entry) => ({
+    ...entry,
+    segmentIndex: entry.href ? segments.find((segment) => segment.href === entry.href)?.index : undefined,
+  }));
+
 const readEpub = async (file: File) => {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
-  const htmlFiles = Object.values(zip.files)
+  const packageInfo = await readEpubPackageInfo(zip);
+  const allHtmlFiles = Object.values(zip.files)
     .filter((entry) => !entry.dir && /\.(xhtml|html|htm)$/i.test(entry.name))
     .sort((a, b) => a.name.localeCompare(b.name));
+  const spineHtmlFiles = (packageInfo?.spineHrefs || [])
+    .map((href) => findZipEntryByPath(zip, href))
+    .filter((entry): entry is JSZip.JSZipObject => Boolean(entry) && /\.(xhtml|html|htm)$/i.test(entry.name));
+  const htmlFiles = spineHtmlFiles.length ? spineHtmlFiles : allHtmlFiles;
 
-  const chapters: string[] = [];
+  const chapters: Array<{ href: string; text: string }> = [];
+  const rawToc = await resolveEpubToc(zip, allHtmlFiles, packageInfo);
 
   for (const entry of htmlFiles) {
     const html = await entry.async('text');
     const text = normalizeWhitespace(stripHtml(html));
 
     if (text) {
-      chapters.push(text);
+      chapters.push({
+        href: normalizeEpubHref(entry.name),
+        text,
+      });
     }
   }
 
-  return normalizeReadableText(chapters.join('\n\n'));
+  return {
+    text: normalizeReadableText(chapters.map((chapter) => chapter.text).join('\n\n')),
+    chapters,
+    toc: rawToc,
+  };
 };
 
 export const parseBookFile = async (file: File): Promise<UploadedBook> => {
@@ -321,6 +749,7 @@ export const parseBookFile = async (file: File): Promise<UploadedBook> => {
   let segments: SourceSegment[] = [];
   let pageCount: number | undefined;
   let sourceData: ArrayBuffer | undefined;
+  let toc: TocEntry[] = [];
 
   if (extension === 'txt') {
     fileType = 'txt';
@@ -329,14 +758,18 @@ export const parseBookFile = async (file: File): Promise<UploadedBook> => {
   } else if (extension === 'pdf') {
     fileType = 'pdf';
     sourceData = await file.arrayBuffer();
-    const pages = await readPdf(sourceData.slice(0));
+    const pdf = await getDocument({ data: sourceData.slice(0) }).promise;
+    const pages = await readPdfDocument(pdf);
     pageCount = pages.length;
     text = normalizeReadableText(pages.map((page) => [page.text, ...page.footnotes].join('\n')).join('\n\n'));
     segments = createPdfSegments(pages);
+    toc = attachPdfTocTargets(await readPdfToc(pdf), segments);
   } else if (extension === 'epub') {
     fileType = 'epub';
-    text = await readEpub(file);
-    segments = segmentText(text);
+    const epub = await readEpub(file);
+    text = epub.text;
+    segments = segmentEpubChapters(epub.chapters);
+    toc = attachEpubTocTargets(epub.toc, segments);
   } else {
     throw new Error('Unsupported file type. Upload a text-based PDF, TXT, or EPUB file.');
   }
@@ -356,5 +789,6 @@ export const parseBookFile = async (file: File): Promise<UploadedBook> => {
     sourceData,
     pageCount,
     segments,
+    toc,
   };
 };

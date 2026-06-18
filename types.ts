@@ -9,6 +9,16 @@ export interface UploadedBook {
   sourceData?: ArrayBuffer;
   pageCount?: number;
   segments: SourceSegment[];
+  toc?: TocEntry[];
+}
+
+export interface TocEntry {
+  id: string;
+  title: string;
+  level: number;
+  segmentIndex?: number;
+  pageNumber?: number;
+  href?: string;
 }
 
 export interface SourceSegment {
@@ -20,6 +30,7 @@ export interface SourceSegment {
   label?: string;
   firstPage?: number;
   lastPage?: number;
+  href?: string;
 }
 
 export interface TranslatedSegment extends SourceSegment {

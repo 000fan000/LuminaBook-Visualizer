@@ -12,6 +12,7 @@ import {
   Highlighter,
   KeyRound,
   Languages,
+  ListTree,
   Library,
   Loader2,
   Play,
@@ -19,11 +20,12 @@ import {
   Settings2,
   Sparkles,
   Upload,
+  Trash2,
   X,
 } from 'lucide-react';
 import { TextLayer } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { parseBookFile } from './services/bookIngestion';
-import { loadBooksFromLibrary, saveBookToLibrary } from './services/libraryStorage';
+import { deleteBookFromLibrary, loadBooksFromLibrary, saveBookToLibrary } from './services/libraryStorage';
 import {
   clearLlmEvaluationRecords,
   downloadLlmEvaluationCsv,
@@ -766,6 +768,44 @@ const App: React.FC = () => {
     }
   };
 
+  const deleteBook = async (bookId: string) => {
+    const targetBook = books.find((item) => item.id === bookId);
+
+    if (!targetBook) {
+      return;
+    }
+
+    try {
+      await deleteBookFromLibrary(bookId);
+
+      if (targetBook.sourceUrl) {
+        URL.revokeObjectURL(targetBook.sourceUrl);
+      }
+
+      setBooks((current) => current.filter((item) => item.id !== bookId));
+      setTranslatedSegmentsByBook((current) => {
+        const { [bookId]: _deleted, ...remaining } = current;
+        return remaining;
+      });
+      setBookmarks((current) => current.filter((item) => !belongsToBook(item, targetBook)));
+      setHighlights((current) => current.filter((item) => !belongsToBook(item, targetBook)));
+      setKnowledgeCards((current) => current.filter((item) => !belongsToBook(item, targetBook)));
+      setNotes((current) => current.filter((item) => !belongsToBook(item, targetBook)));
+      setReadingProgress((current) => current.filter((item) => !belongsToBook(item, targetBook)));
+
+      if (activeBookId === bookId) {
+        setActiveBookId('');
+        setActiveSegmentIndex(0);
+        setView('library');
+      }
+
+      setStatusMessage(`${targetBook.title} deleted from the shelf.`);
+      setErrorMessage('');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not delete the selected book.');
+    }
+  };
+
   const getSegmentTranslationContext = (segment: UploadedBook['segments'][number]) => {
     if (!book) {
       return {};
@@ -877,6 +917,14 @@ const App: React.FC = () => {
     }
 
     setActiveSegmentIndex((current) => Math.min(Math.max(current + direction, 0), book.segments.length - 1));
+  };
+
+  const goToSegment = (segmentIndex: number) => {
+    if (!book) {
+      return;
+    }
+
+    setActiveSegmentIndex(Math.min(Math.max(segmentIndex, 0), book.segments.length - 1));
   };
 
   const toggleBookmark = () => {
@@ -1074,6 +1122,7 @@ const App: React.FC = () => {
         onBack={() => setView('library')}
         onPrevious={() => moveSegment(-1)}
         onNext={() => moveSegment(1)}
+        onGoToSegment={goToSegment}
         onTranslateCurrent={translateCurrent}
         onTranslateNext={translateNext}
         onSelectLlmProfile={selectLlmProfile}
@@ -1121,6 +1170,7 @@ const App: React.FC = () => {
       onExportLlmProfiles={exportLlmProfiles}
       onImportLlmProfiles={importLlmProfiles}
       onOpenBook={openBook}
+      onDeleteBook={deleteBook}
       bookmarks={bookmarks}
       onOpenBookmark={goToBookmark}
       isConfigOpen={isConfigOpen}
@@ -1159,6 +1209,7 @@ interface LibraryViewProps {
   onExportLlmProfiles: () => void;
   onImportLlmProfiles: (file: File | null) => void;
   onOpenBook: (bookId: string) => void;
+  onDeleteBook: (bookId: string) => void;
   bookmarks: Bookmark[];
   onOpenBookmark: (bookmark: Bookmark) => void;
   isConfigOpen: boolean;
@@ -1195,6 +1246,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   onExportLlmProfiles,
   onImportLlmProfiles,
   onOpenBook,
+  onDeleteBook,
   bookmarks,
   onOpenBookmark,
   isConfigOpen,
@@ -1253,6 +1305,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
                   progress={progress}
                   bookmarks={bookmarks.filter((bookmark) => belongsToBook(bookmark, book))}
                   onOpenReader={() => onOpenBook(book.id)}
+                  onDeleteBook={() => onDeleteBook(book.id)}
                   onOpenBookmark={onOpenBookmark}
                 />
               );
@@ -1645,6 +1698,7 @@ interface ReaderViewProps {
   onBack: () => void;
   onPrevious: () => void;
   onNext: () => void;
+  onGoToSegment: (segmentIndex: number) => void;
   onTranslateCurrent: () => void;
   onTranslateNext: () => void;
   onSelectLlmProfile: (profileId: string) => void;
@@ -1698,6 +1752,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   onBack,
   onPrevious,
   onNext,
+  onGoToSegment,
   onTranslateCurrent,
   onTranslateNext,
   onSelectLlmProfile,
@@ -1718,7 +1773,11 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   onNoteChange,
   onRespondToNote,
   isRespondingToNote,
-}) => (
+}) => {
+  const [isTocOpen, setIsTocOpen] = useState(false);
+  const tocEntries = book.toc || [];
+
+  return (
   <div className="flex min-h-screen flex-col bg-[#f2eadc] text-stone-950">
     <header className="sticky top-0 z-20 border-b border-stone-300/70 bg-[#f2eadc]/95 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 md:px-6">
@@ -1726,9 +1785,61 @@ const ReaderView: React.FC<ReaderViewProps> = ({
           <ArrowLeft className="h-4 w-4" />
           Library
         </button>
-        <div className="min-w-0 px-4 text-center">
-          <p className="truncate text-sm font-semibold">{book.title}</p>
+        <div className="relative min-w-0 px-4 text-center">
+          <button
+            type="button"
+            onClick={() => setIsTocOpen((current) => !current)}
+            disabled={!tocEntries.length}
+            className="mx-auto flex max-w-[360px] items-center justify-center gap-2 rounded-md px-2 py-1 text-sm font-semibold hover:bg-stone-200/60 disabled:cursor-default disabled:hover:bg-transparent"
+            title={tocEntries.length ? 'Open table of contents' : 'No original table of contents'}
+          >
+            <span className="truncate">{book.title}</span>
+            <ListTree className={`h-4 w-4 shrink-0 ${tocEntries.length ? 'text-stone-600' : 'text-stone-300'}`} />
+          </button>
           <p className="text-xs text-stone-500">{getSourcePageLabel(activeSegment)}</p>
+          {isTocOpen && tocEntries.length > 0 && (
+            <div className="absolute left-1/2 top-12 z-30 max-h-[70vh] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 overflow-auto rounded-md border border-stone-300 bg-[#fffdf8] p-2 text-left shadow-xl">
+              <div className="flex items-center justify-between border-b border-stone-200 px-2 py-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">目录</p>
+                <button
+                  type="button"
+                  onClick={() => setIsTocOpen(false)}
+                  className="flex h-7 w-7 items-center justify-center rounded-sm text-stone-500 hover:bg-stone-100"
+                  title="Close table of contents"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="py-2">
+                {tocEntries.map((entry) => {
+                  const isActive = entry.segmentIndex === activeSegmentIndex;
+
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      disabled={entry.segmentIndex === undefined}
+                      onClick={() => {
+                        if (entry.segmentIndex !== undefined) {
+                          onGoToSegment(entry.segmentIndex);
+                          setIsTocOpen(false);
+                        }
+                      }}
+                      className={`flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left text-sm leading-5 ${
+                        isActive ? 'bg-stone-900 text-[#fffdf8]' : 'text-stone-700 hover:bg-stone-100'
+                      } disabled:cursor-not-allowed disabled:text-stone-400 disabled:hover:bg-transparent`}
+                      style={{ paddingLeft: `${8 + Math.min(entry.level, 4) * 14}px` }}
+                    >
+                      <span className="min-w-10 text-xs text-current opacity-60">
+                        {entry.pageNumber ? `p.${entry.pageNumber}` : entry.segmentIndex !== undefined ? `${entry.segmentIndex + 1}` : '-'}
+                      </span>
+                      <span>{entry.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <select
@@ -1855,7 +1966,8 @@ const ReaderView: React.FC<ReaderViewProps> = ({
       </div>
     </footer>
   </div>
-);
+  );
+};
 
 interface UploadCoverTileProps {
   isParsing: boolean;
@@ -1890,36 +2002,61 @@ interface BookCoverTileProps {
   progress: number;
   bookmarks: Bookmark[];
   onOpenReader: () => void;
+  onDeleteBook: () => void;
   onOpenBookmark: (bookmark: Bookmark) => void;
 }
 
-const BookCoverTile: React.FC<BookCoverTileProps> = ({ book, translatedCount, progress, bookmarks, onOpenReader, onOpenBookmark }) => (
+const BookCoverTile: React.FC<BookCoverTileProps> = ({
+  book,
+  translatedCount,
+  progress,
+  bookmarks,
+  onOpenReader,
+  onDeleteBook,
+  onOpenBookmark,
+}) => (
   <article className="group">
-    <button
-      onClick={onOpenReader}
-      disabled={!book}
-      className="flex aspect-[2/3] w-full flex-col justify-between overflow-hidden rounded-sm border border-stone-700 bg-stone-900 p-4 text-left text-[#fffdf8] shadow-[6px_8px_0_rgba(80,63,42,0.2)] transition hover:-translate-y-1 disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-300">
-          {book?.fileType ? book.fileType.toUpperCase() : 'Empty'}
-        </p>
-        <h3 className="mt-5 max-h-32 overflow-hidden text-xl font-semibold leading-tight">
-          {book?.title || 'Upload a book to begin'}
-        </h3>
-        <p className="mt-3 max-h-10 overflow-hidden text-xs leading-5 text-stone-300">
-          {book?.author || book?.fileName || 'Source file'}
-        </p>
-      </div>
-      <div>
-        <div className="mb-2 h-1 overflow-hidden rounded-full bg-white/20">
-          <div className="h-full rounded-full bg-[#f2eadc]" style={{ width: `${progress}%` }} />
+    <div className="relative">
+      <button
+        onClick={onOpenReader}
+        disabled={!book}
+        className="flex aspect-[2/3] w-full flex-col justify-between overflow-hidden rounded-sm border border-stone-700 bg-stone-900 p-4 text-left text-[#fffdf8] shadow-[6px_8px_0_rgba(80,63,42,0.2)] transition hover:-translate-y-1 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-300">
+            {book?.fileType ? book.fileType.toUpperCase() : 'Empty'}
+          </p>
+          <h3 className="mt-5 max-h-32 overflow-hidden text-xl font-semibold leading-tight">
+            {book?.title || 'Upload a book to begin'}
+          </h3>
+          <p className="mt-3 max-h-10 overflow-hidden text-xs leading-5 text-stone-300">
+            {book?.author || book?.fileName || 'Source file'}
+          </p>
         </div>
-        <p className="text-xs text-stone-300">
-          {book ? `${translatedCount}/${book.segments.length} translated` : 'No active book'}
-        </p>
-      </div>
-    </button>
+        <div>
+          <div className="mb-2 h-1 overflow-hidden rounded-full bg-white/20">
+            <div className="h-full rounded-full bg-[#f2eadc]" style={{ width: `${progress}%` }} />
+          </div>
+          <p className="text-xs text-stone-300">
+            {book ? `${translatedCount}/${book.segments.length} translated` : 'No active book'}
+          </p>
+        </div>
+      </button>
+      {book && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDeleteBook();
+          }}
+          title="Delete book"
+          aria-label={`Delete ${book.title}`}
+          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-sm border border-white/15 bg-black/45 text-stone-100 opacity-0 shadow-sm transition hover:bg-red-700 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-white/60 group-hover:opacity-100"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      )}
+    </div>
     {bookmarks.length > 0 && (
       <div className="mt-3 space-y-1">
         {bookmarks.slice(-3).map((bookmark) => (

@@ -63,6 +63,10 @@ export const saveBookToLibrary = async (book: UploadedBook, file: File) => {
   await runStoreRequest('readwrite', (store) => store.put(record));
 };
 
+export const deleteBookFromLibrary = async (bookId: string) => {
+  await runStoreRequest('readwrite', (store) => store.delete(bookId));
+};
+
 export const loadBooksFromLibrary = async (): Promise<UploadedBook[]> => {
   try {
     const records = await runStoreRequest<StoredBook[]>('readonly', (store) => store.getAll());
