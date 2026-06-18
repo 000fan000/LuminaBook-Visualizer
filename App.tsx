@@ -112,6 +112,8 @@ const STORAGE_KEYS = {
   notes: 'luminabook.notes',
   progress: 'luminabook.progress',
   readingTheme: 'luminabook.readingTheme',
+  sourceReadingTheme: 'luminabook.sourceReadingTheme',
+  translationReadingTheme: 'luminabook.translationReadingTheme',
   customThemes: 'luminabook.customReadingThemes',
   llmProfiles: 'luminabook.llmProfiles',
   activeLlmProfileId: 'luminabook.activeLlmProfileId',
@@ -302,8 +304,17 @@ const App: React.FC = () => {
   const [customReadingThemes, setCustomReadingThemes] = useState<ReadingTheme[]>(() =>
     readStorage<ReadingTheme[]>(STORAGE_KEYS.customThemes, []),
   );
-  const [readingTheme, setReadingTheme] = useState<ReadingTheme>(() =>
-    readStorage<ReadingTheme>(STORAGE_KEYS.readingTheme, DEFAULT_READING_THEMES[0]),
+  const [sourceReadingTheme, setSourceReadingTheme] = useState<ReadingTheme>(() =>
+    readStorage<ReadingTheme>(
+      STORAGE_KEYS.sourceReadingTheme,
+      readStorage<ReadingTheme>(STORAGE_KEYS.readingTheme, DEFAULT_READING_THEMES[0]),
+    ),
+  );
+  const [translationReadingTheme, setTranslationReadingTheme] = useState<ReadingTheme>(() =>
+    readStorage<ReadingTheme>(
+      STORAGE_KEYS.translationReadingTheme,
+      readStorage<ReadingTheme>(STORAGE_KEYS.readingTheme, DEFAULT_READING_THEMES[0]),
+    ),
   );
   const [isParsing, setIsParsing] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
@@ -505,34 +516,44 @@ const App: React.FC = () => {
 
   const readingThemes = useMemo(() => [...DEFAULT_READING_THEMES, ...customReadingThemes], [customReadingThemes]);
 
-  const updateReadingTheme = <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => {
-    setReadingTheme((current) => ({
-      ...current,
-      id: 'custom-draft',
-      name: current.id === 'custom-draft' ? current.name : 'Custom',
-      [key]: value,
-    }));
-  };
+  const updateTheme =
+    (setTheme: React.Dispatch<React.SetStateAction<ReadingTheme>>) =>
+    <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => {
+      setTheme((current) => ({
+        ...current,
+        id: 'custom-draft',
+        name: current.id === 'custom-draft' ? current.name : 'Custom',
+        [key]: value,
+      }));
+    };
 
-  const applyReadingTheme = (themeId: string) => {
+  const applyTheme = (setTheme: React.Dispatch<React.SetStateAction<ReadingTheme>>, themeId: string) => {
     const theme = readingThemes.find((item) => item.id === themeId);
 
     if (theme) {
-      setReadingTheme(theme);
+      setTheme(theme);
     }
   };
 
-  const saveCurrentReadingTheme = () => {
+  const saveCurrentTheme = (theme: ReadingTheme, setTheme: React.Dispatch<React.SetStateAction<ReadingTheme>>) => {
     const next: ReadingTheme = {
-      ...readingTheme,
+      ...theme,
       id: `custom-${Date.now()}`,
       name: `Theme ${customReadingThemes.length + 1}`,
     };
 
     setCustomReadingThemes((current) => [...current, next].slice(-8));
-    setReadingTheme(next);
+    setTheme(next);
     setStatusMessage(`${next.name} saved.`);
   };
+
+  const updateSourceReadingTheme = updateTheme(setSourceReadingTheme);
+  const updateTranslationReadingTheme = updateTheme(setTranslationReadingTheme);
+  const applySourceReadingTheme = (themeId: string) => applyTheme(setSourceReadingTheme, themeId);
+  const applyTranslationReadingTheme = (themeId: string) => applyTheme(setTranslationReadingTheme, themeId);
+  const saveCurrentSourceReadingTheme = () => saveCurrentTheme(sourceReadingTheme, setSourceReadingTheme);
+  const saveCurrentTranslationReadingTheme = () =>
+    saveCurrentTheme(translationReadingTheme, setTranslationReadingTheme);
 
   const applyProvider = (providerId: string) => {
     const preset = PROVIDER_PRESETS.find((provider) => provider.id === providerId);
@@ -663,8 +684,13 @@ const App: React.FC = () => {
   }, [readingProgress]);
 
   useEffect(() => {
-    writeStorage(STORAGE_KEYS.readingTheme, readingTheme);
-  }, [readingTheme]);
+    writeStorage(STORAGE_KEYS.sourceReadingTheme, sourceReadingTheme);
+  }, [sourceReadingTheme]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.translationReadingTheme, translationReadingTheme);
+    writeStorage(STORAGE_KEYS.readingTheme, translationReadingTheme);
+  }, [translationReadingTheme]);
 
   useEffect(() => {
     writeStorage(STORAGE_KEYS.customThemes, customReadingThemes);
@@ -1112,7 +1138,8 @@ const App: React.FC = () => {
         settings={settings}
         llmProfiles={llmProfiles}
         activeLlmProfileId={activeLlmProfileId}
-        readingTheme={readingTheme}
+        sourceReadingTheme={sourceReadingTheme}
+        translationReadingTheme={translationReadingTheme}
         readingThemes={readingThemes}
         progress={progress}
         isTranslating={isTranslating}
@@ -1136,9 +1163,12 @@ const App: React.FC = () => {
         onRightPaneModeChange={setRightPaneMode}
         hoveredNoteSourceText={hoveredNoteSourceText}
         onHoverNoteSource={setHoveredNoteSourceText}
-        onThemeChange={updateReadingTheme}
-        onApplyTheme={applyReadingTheme}
-        onSaveTheme={saveCurrentReadingTheme}
+        onSourceThemeChange={updateSourceReadingTheme}
+        onApplySourceTheme={applySourceReadingTheme}
+        onSaveSourceTheme={saveCurrentSourceReadingTheme}
+        onTranslationThemeChange={updateTranslationReadingTheme}
+        onApplyTranslationTheme={applyTranslationReadingTheme}
+        onSaveTranslationTheme={saveCurrentTranslationReadingTheme}
         note={activeNote}
         onNoteChange={updateActiveNote}
         onRespondToNote={respondToNote}
@@ -1688,7 +1718,8 @@ interface ReaderViewProps {
   settings: LlmSettings;
   llmProfiles: LlmProfile[];
   activeLlmProfileId: string;
-  readingTheme: ReadingTheme;
+  sourceReadingTheme: ReadingTheme;
+  translationReadingTheme: ReadingTheme;
   readingThemes: ReadingTheme[];
   progress: number;
   isTranslating: boolean;
@@ -1712,9 +1743,12 @@ interface ReaderViewProps {
   onRightPaneModeChange: (mode: RightPaneMode) => void;
   hoveredNoteSourceText: string;
   onHoverNoteSource: (text: string) => void;
-  onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
-  onApplyTheme: (themeId: string) => void;
-  onSaveTheme: () => void;
+  onSourceThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
+  onApplySourceTheme: (themeId: string) => void;
+  onSaveSourceTheme: () => void;
+  onTranslationThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
+  onApplyTranslationTheme: (themeId: string) => void;
+  onSaveTranslationTheme: () => void;
   note: ReaderNote | null;
   onNoteChange: (body: string) => void;
   onRespondToNote: () => void;
@@ -1742,7 +1776,8 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   settings,
   llmProfiles,
   activeLlmProfileId,
-  readingTheme,
+  sourceReadingTheme,
+  translationReadingTheme,
   readingThemes,
   progress,
   isTranslating,
@@ -1766,9 +1801,12 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   onRightPaneModeChange,
   hoveredNoteSourceText,
   onHoverNoteSource,
-  onThemeChange,
-  onApplyTheme,
-  onSaveTheme,
+  onSourceThemeChange,
+  onApplySourceTheme,
+  onSaveSourceTheme,
+  onTranslationThemeChange,
+  onApplyTranslationTheme,
+  onSaveTranslationTheme,
   note,
   onNoteChange,
   onRespondToNote,
@@ -1888,18 +1926,23 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             pdfUrl={book.fileType === 'pdf' ? book.sourceUrl : undefined}
             pdfData={book.fileType === 'pdf' ? book.sourceData : undefined}
             pdfPage={activeSegment.firstPage}
+            readingTheme={book.fileType === 'pdf' ? undefined : sourceReadingTheme}
+            readingThemes={readingThemes}
             highlights={highlights.filter((highlight) => highlight.pageSide === 'original')}
             knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'original')}
             hoverHighlightText={hoveredNoteSourceText}
             onAddHighlight={() => onAddHighlight('original')}
             onCreateKnowledgeCard={() => onCreateKnowledgeCard('original')}
+            onThemeChange={onSourceThemeChange}
+            onApplyTheme={onApplySourceTheme}
+            onSaveTheme={onSaveSourceTheme}
           />
           <RightReaderPane
             motherLanguage={motherLanguage}
             activeTranslation={activeTranslation}
             sourceText={activeSegment.sourceText}
             formatPageFrame={book.fileType === 'pdf'}
-            readingTheme={readingTheme}
+            readingTheme={translationReadingTheme}
             readingThemes={readingThemes}
             mode={rightPaneMode}
             note={note}
@@ -1908,9 +1951,9 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'translation')}
             onModeChange={onRightPaneModeChange}
             onHoverNoteSource={onHoverNoteSource}
-            onThemeChange={onThemeChange}
-            onApplyTheme={onApplyTheme}
-            onSaveTheme={onSaveTheme}
+            onThemeChange={onTranslationThemeChange}
+            onApplyTheme={onApplyTranslationTheme}
+            onSaveTheme={onSaveTranslationTheme}
             onAddHighlight={() => onAddHighlight('translation')}
             onCreateKnowledgeCard={() => onCreateKnowledgeCard('translation')}
             onNoteChange={onNoteChange}
@@ -2083,11 +2126,16 @@ interface BookPageProps {
   pdfUrl?: string;
   pdfData?: ArrayBuffer;
   pdfPage?: number;
+  readingTheme?: ReadingTheme;
+  readingThemes: ReadingTheme[];
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
   hoverHighlightText?: string;
   onAddHighlight: () => void;
   onCreateKnowledgeCard: () => void;
+  onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
+  onApplyTheme: (themeId: string) => void;
+  onSaveTheme: () => void;
   muted?: boolean;
 }
 
@@ -2100,15 +2148,37 @@ const BookPage: React.FC<BookPageProps> = ({
   pdfUrl,
   pdfData,
   pdfPage,
+  readingTheme,
+  readingThemes,
   highlights,
   knowledgeCards,
   hoverHighlightText = '',
   onAddHighlight,
   onCreateKnowledgeCard,
+  onThemeChange,
+  onApplyTheme,
+  onSaveTheme,
   muted,
-}) => (
-  <article className="flex min-h-[680px] flex-col rounded-sm border border-stone-300 bg-[#fffdf8] px-7 py-6 shadow-[0_18px_60px_rgba(68,54,34,0.13)] md:px-10">
-    <div className="-mx-3 mb-8 flex flex-wrap items-center justify-between gap-3 border-b border-stone-300 bg-stone-50/80 px-3 pb-4 pt-1 text-stone-500 md:-mx-5 md:px-5">
+}) => {
+  const [isFormatOpen, setIsFormatOpen] = useState(false);
+  const canFormatText = Boolean(readingTheme && !pdfUrl);
+  const sectionStyle = readingTheme
+    ? {
+        color: getSubduedTextColor(readingTheme),
+        borderColor: getPageFrameSeparatorColor(readingTheme),
+        backgroundColor: getPageFrameBackground(readingTheme),
+      }
+    : undefined;
+
+  return (
+  <article
+    className="relative flex min-h-[680px] flex-col rounded-sm border border-stone-300 px-7 py-6 shadow-[0_18px_60px_rgba(68,54,34,0.13)] md:px-10"
+    style={readingTheme ? { backgroundColor: readingTheme.background, color: readingTheme.textColor } : { backgroundColor: '#fffdf8' }}
+  >
+    <div
+      className="-mx-3 mb-8 flex flex-wrap items-center justify-between gap-3 border-b border-stone-300 bg-stone-50/80 px-3 pb-4 pt-1 text-stone-500 md:-mx-5 md:px-5"
+      style={sectionStyle}
+    >
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">{eyebrow}</p>
         <h2 className="mt-1 text-sm font-medium text-stone-600">{title}</h2>
@@ -2128,6 +2198,15 @@ const BookPage: React.FC<BookPageProps> = ({
         >
           <FileText className="h-4 w-4" />
         </button>
+        {canFormatText && (
+          <button
+            onClick={() => setIsFormatOpen((current) => !current)}
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
+            title="Tune original text format"
+          >
+            <BookOpen className="h-4 w-4" />
+          </button>
+        )}
         <span className="text-xs text-stone-400">{pageLabel}</span>
       </div>
     </div>
@@ -2142,10 +2221,26 @@ const BookPage: React.FC<BookPageProps> = ({
         <PdfCanvasPage source={pdfData || pdfUrl} pageNumber={pdfPage || 1} />
       </div>
     ) : (
-      <FormattedReadingText text={body} muted={muted} hoverHighlightText={hoverHighlightText} />
+      <>
+        <FormattedReadingText text={body} muted={muted} hoverHighlightText={hoverHighlightText} theme={readingTheme} />
+        {isFormatOpen && readingTheme && (
+          <ReadingThemePopover
+            title="Original Format"
+            description="Tune the source text page."
+            theme={readingTheme}
+            themes={readingThemes}
+            onThemeChange={onThemeChange}
+            onApplyTheme={onApplyTheme}
+            onSaveTheme={onSaveTheme}
+          />
+        )}
+      </>
     )}
 
-    <div className="-mx-3 mt-8 min-h-24 border-t border-stone-300 bg-stone-50/70 px-3 pt-5 text-stone-500 md:-mx-5 md:px-5">
+    <div
+      className="-mx-3 mt-8 min-h-24 border-t border-stone-300 bg-stone-50/70 px-3 pt-5 text-stone-500 md:-mx-5 md:px-5"
+      style={sectionStyle}
+    >
       {highlights.length > 0 && (
         <div className="mb-4 space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Highlights</p>
@@ -2182,7 +2277,8 @@ const BookPage: React.FC<BookPageProps> = ({
       )}
     </div>
   </article>
-);
+  );
+};
 
 interface RightReaderPaneProps {
   motherLanguage: string;
@@ -2312,6 +2408,8 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
         />
         {isFormatOpen && (
           <ReadingThemePopover
+            title="Translation Format"
+            description="Tune the facing page."
             theme={readingTheme}
             themes={readingThemes}
             onThemeChange={onThemeChange}
@@ -3132,6 +3230,8 @@ const HighlightedLine: React.FC<HighlightedLineProps> = ({ line, phrase }) => {
 };
 
 interface ReadingThemePopoverProps {
+  title: string;
+  description: string;
   theme: ReadingTheme;
   themes: ReadingTheme[];
   onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
@@ -3140,6 +3240,8 @@ interface ReadingThemePopoverProps {
 }
 
 const ReadingThemePopover: React.FC<ReadingThemePopoverProps> = ({
+  title,
+  description,
   theme,
   themes,
   onThemeChange,
@@ -3149,8 +3251,8 @@ const ReadingThemePopover: React.FC<ReadingThemePopoverProps> = ({
   <div className="absolute right-6 top-20 z-30 w-80 rounded-md border border-stone-300 bg-[#fffdf8] p-4 text-stone-900 shadow-2xl">
     <div className="mb-4 flex items-center justify-between gap-3">
       <div>
-        <p className="text-sm font-semibold">Translation Format</p>
-        <p className="text-xs text-stone-500">Tune the facing page.</p>
+        <p className="text-sm font-semibold">{title}</p>
+        <p className="text-xs text-stone-500">{description}</p>
       </div>
       <button
         onClick={onSaveTheme}
