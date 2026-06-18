@@ -24,6 +24,7 @@ export interface SourceSegment {
 
 export interface TranslatedSegment extends SourceSegment {
   translatedText: string;
+  layout?: TranslationLayout;
   commentary: string;
   keyTerms: KeyTerm[];
   reflectionPrompt: string;
@@ -35,19 +36,39 @@ export interface KeyTerm {
 }
 
 export interface LlmSettings {
+  profileId?: string;
+  profileName?: string;
   provider: string;
   endpoint: string;
   apiKey: string;
   model: string;
+  temperature: number;
   useJsonMode: boolean;
+  requestTimeoutMs: number;
   systemPrompt: string;
+}
+
+export interface LlmProfile extends LlmSettings {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface TranslationResult {
   translatedText: string;
+  layout?: TranslationLayout;
   commentary: string;
   keyTerms: KeyTerm[];
   reflectionPrompt: string;
+}
+
+export interface TranslationLayout {
+  header?: string;
+  title?: string;
+  body: string;
+  notes?: string[];
+  footer?: string;
 }
 
 export interface Bookmark {
@@ -97,4 +118,44 @@ export interface KnowledgeCard {
   pageSide: 'original' | 'translation';
   excerpt: string;
   createdAt: string;
+}
+
+export interface LlmEvaluationRecord {
+  id: string;
+  createdAt: string;
+  localTime: string;
+  profileId: string;
+  profileName: string;
+  requestName: string;
+  attempt: string;
+  provider: string;
+  endpoint: string;
+  method: string;
+  model: string;
+  temperature: number;
+  maxTokens: number | null;
+  useJsonMode: boolean;
+  timeoutMs: number;
+  ok: boolean;
+  status: number | null;
+  statusText: string;
+  elapsedMs: number;
+  elapsedSeconds: number;
+  timedOut: boolean;
+  promptMessages: number;
+  inputCharacters: number;
+  inputWords: number;
+  outputCharacters: number;
+  outputWords: number;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  requestCharacters: number;
+  responseCharacters: number;
+  requestBody: string;
+  responseBody: string;
+  responseContent: string;
+  errorMessage: string;
+  qualityScore: string;
+  qualityNotes: string;
 }

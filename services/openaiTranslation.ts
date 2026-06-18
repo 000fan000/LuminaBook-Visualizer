@@ -1,4 +1,5 @@
 import { LlmSettings, SourceSegment, TranslationResult } from '../types';
+import { saveLlmEvaluationRecord } from './llmEvaluationStorage';
 
 interface ChatCompletionResponse {
   choices?: Array<{
@@ -6,6 +7,11 @@ interface ChatCompletionResponse {
       content?: string;
     };
   }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
 }
 
 export interface ProviderPreset {
@@ -65,7 +71,23 @@ const parseJsonContent = (content: string): TranslationResult => {
   const fencedMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const jsonText = fencedMatch ? fencedMatch[1] : content;
   const objectMatch = jsonText.match(/\{[\s\S]*\}/);
-  return JSON.parse((objectMatch ? objectMatch[0] : jsonText).trim()) as TranslationResult;
+  const parsed = JSON.parse((objectMatch ? objectMatch[0] : jsonText).trim()) as TranslationResult;
+  const layout = parsed.layout
+    ? {
+        header: parsed.layout.header || '',
+        title: parsed.layout.title || '',
+        body: parsed.layout.body || parsed.translatedText || '',
+        notes: Array.isArray(parsed.layout.notes) ? parsed.layout.notes.map(String) : [],
+        footer: parsed.layout.footer || '',
+      }
+    : {
+        body: parsed.translatedText || '',
+      };
+
+  return {
+    ...parsed,
+    layout,
+  };
 };
 
 const buildHeaders = (settings: LlmSettings) => {
@@ -81,9 +103,10 @@ const buildHeaders = (settings: LlmSettings) => {
 };
 
 const buildRequestBody = (settings: LlmSettings, messages: Array<{ role: string; content: string }>, maxTokens?: number) => {
+  const temperature = Number.isFinite(settings.temperature) ? settings.temperature : 0.3;
   const body: Record<string, unknown> = {
     model: settings.model,
-    temperature: 0.3,
+    temperature,
     messages,
   };
 
@@ -98,28 +121,240 @@ const buildRequestBody = (settings: LlmSettings, messages: Array<{ role: string;
   return body;
 };
 
+const sanitizeHeadersForLog = (headers: Record<string, string>) =>
+  Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key,
+      key.toLowerCase() === 'authorization' ? 'Bearer ***' : value,
+    ]),
+  );
+
+const cloneTextResponse = (response: Response, bodyText: string) =>
+  new Response(bodyText, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+
+const countWords = (text: string) => (text.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
+
+const extractResponseContent = (responseText: string) => {
+  try {
+    const data = JSON.parse(responseText) as ChatCompletionResponse;
+    return data.choices?.[0]?.message?.content || '';
+  } catch {
+    return '';
+  }
+};
+
+const extractResponseUsage = (responseText: string) => {
+  try {
+    const data = JSON.parse(responseText) as ChatCompletionResponse;
+
+    return {
+      promptTokens: data.usage?.prompt_tokens ?? null,
+      completionTokens: data.usage?.completion_tokens ?? null,
+      totalTokens: data.usage?.total_tokens ?? null,
+    };
+  } catch {
+    return {
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null,
+    };
+  }
+};
+
+const getEvaluationTemperature = (settings: LlmSettings) => (Number.isFinite(settings.temperature) ? settings.temperature : 0.3);
+
+const getEvaluationTimeoutMs = (settings: LlmSettings) =>
+  Number.isFinite(settings.requestTimeoutMs) && settings.requestTimeoutMs > 0 ? settings.requestTimeoutMs : 600_000;
+
+const safeSaveEvaluationRecord = (record: Parameters<typeof saveLlmEvaluationRecord>[0]) => {
+  saveLlmEvaluationRecord(record).catch((error) => {
+    console.warn('[LuminaBook LLM] could not save evaluation record', error);
+  });
+};
+
 const postChatCompletion = async (
   settings: LlmSettings,
   messages: Array<{ role: string; content: string }>,
   maxTokens?: number,
+  requestName = 'chat completion',
 ) => {
-  const send = (useJsonMode: boolean) =>
-    fetch(normalizeEndpoint(settings.endpoint), {
-      method: 'POST',
-      headers: buildHeaders(settings),
-      body: JSON.stringify(
-        buildRequestBody(
-          {
-            ...settings,
-            useJsonMode,
-          },
-          messages,
-          maxTokens,
-        ),
-      ),
-    });
+  const url = normalizeEndpoint(settings.endpoint);
+  const logPrefix = `[LuminaBook LLM] ${requestName}`;
+  const timeoutMs = getEvaluationTimeoutMs(settings);
+  const temperature = getEvaluationTemperature(settings);
 
-  const response = await send(settings.useJsonMode);
+  const send = async (useJsonMode: boolean, attempt: string) => {
+    const headers = buildHeaders(settings);
+    const requestBody = buildRequestBody(
+      {
+        ...settings,
+        useJsonMode,
+      },
+      messages,
+      maxTokens,
+    );
+    const startedAt = Date.now();
+    const requestText = JSON.stringify(requestBody);
+    const inputText = messages.map((message) => message.content).join('\n\n');
+
+    console.groupCollapsed(`${logPrefix} request`);
+    console.log({
+      attempt,
+      provider: settings.provider,
+      endpoint: url,
+      method: 'POST',
+      model: settings.model,
+      useJsonMode,
+      maxTokens: maxTokens ?? null,
+      headers: sanitizeHeadersForLog(headers),
+      body: requestBody,
+      requestCharacters: requestText.length,
+      inputCharacters: inputText.length,
+      timeoutMs,
+    });
+    console.groupEnd();
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
+      const responseText = await response.text();
+      const elapsedMs = Date.now() - startedAt;
+      window.clearTimeout(timeoutId);
+      const responseContent = extractResponseContent(responseText);
+      const responseUsage = extractResponseUsage(responseText);
+
+      console.info(`${logPrefix} status`, {
+        attempt,
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs,
+        responseCharacters: responseText.length,
+        outputCharacters: responseContent.length,
+        ...responseUsage,
+      });
+      console.groupCollapsed(`${logPrefix} response body`);
+      console.log(responseText);
+      console.groupEnd();
+
+      safeSaveEvaluationRecord({
+        id: `${Date.now()}-${crypto.randomUUID()}`,
+        createdAt: new Date().toISOString(),
+        localTime: new Date().toLocaleString(),
+        profileId: settings.profileId || '',
+        profileName: settings.profileName || settings.model,
+        requestName,
+        attempt,
+        provider: settings.provider,
+        endpoint: url,
+        method: 'POST',
+        model: settings.model,
+        temperature,
+        maxTokens: maxTokens ?? null,
+        useJsonMode,
+        timeoutMs,
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs,
+        elapsedSeconds: Number((elapsedMs / 1000).toFixed(3)),
+        timedOut: false,
+        promptMessages: messages.length,
+        inputCharacters: inputText.length,
+        inputWords: countWords(inputText),
+        outputCharacters: responseContent.length,
+        outputWords: countWords(responseContent),
+        ...responseUsage,
+        requestCharacters: requestText.length,
+        responseCharacters: responseText.length,
+        requestBody: requestText,
+        responseBody: responseText,
+        responseContent,
+        errorMessage: response.ok ? '' : responseText.slice(0, 2000),
+        qualityScore: '',
+        qualityNotes: '',
+      });
+
+      return cloneTextResponse(response, responseText);
+    } catch (error) {
+      window.clearTimeout(timeoutId);
+      const elapsedMs = Date.now() - startedAt;
+      const isTimeout = error instanceof DOMException && error.name === 'AbortError';
+      const errorMessage = isTimeout
+        ? `${requestName} timed out after ${Math.round(timeoutMs / 1000)} seconds.`
+        : error instanceof Error
+          ? error.message
+          : String(error);
+
+      console.error(`${logPrefix} failed`, {
+        attempt,
+        elapsedMs,
+        timeoutMs,
+        timedOut: isTimeout,
+        error,
+      });
+      safeSaveEvaluationRecord({
+        id: `${Date.now()}-${crypto.randomUUID()}`,
+        createdAt: new Date().toISOString(),
+        localTime: new Date().toLocaleString(),
+        profileId: settings.profileId || '',
+        profileName: settings.profileName || settings.model,
+        requestName,
+        attempt,
+        provider: settings.provider,
+        endpoint: url,
+        method: 'POST',
+        model: settings.model,
+        temperature,
+        maxTokens: maxTokens ?? null,
+        useJsonMode,
+        timeoutMs,
+        ok: false,
+        status: null,
+        statusText: '',
+        elapsedMs,
+        elapsedSeconds: Number((elapsedMs / 1000).toFixed(3)),
+        timedOut: isTimeout,
+        promptMessages: messages.length,
+        inputCharacters: inputText.length,
+        inputWords: countWords(inputText),
+        outputCharacters: 0,
+        outputWords: 0,
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+        requestCharacters: requestText.length,
+        responseCharacters: 0,
+        requestBody: requestText,
+        responseBody: '',
+        responseContent: '',
+        errorMessage,
+        qualityScore: '',
+        qualityNotes: '',
+      });
+
+      if (isTimeout) {
+        throw new Error(errorMessage);
+      }
+
+      throw error;
+    }
+  };
+
+  const response = await send(settings.useJsonMode, settings.useJsonMode ? 'json mode' : 'standard');
 
   if (response.ok || !settings.useJsonMode) {
     return response;
@@ -128,7 +363,11 @@ const postChatCompletion = async (
   const detail = await response.text();
 
   if (/response_format|json/i.test(detail)) {
-    return send(false);
+    console.warn(`${logPrefix} retrying without JSON mode`, {
+      initialStatus: response.status,
+      detail: detail.slice(0, 500),
+    });
+    return send(false, 'fallback without JSON mode');
   }
 
   return new Response(detail, {
@@ -147,20 +386,31 @@ export const translateSegment = async (
     throw new Error('Endpoint, API key, and model are required before translation.');
   }
 
-  const response = await postChatCompletion(settings, [
-    {
-      role: 'system',
-      content: settings.systemPrompt,
-    },
-    {
-      role: 'user',
-      content: `Translate this book segment into ${motherLanguage}.
+  const response = await postChatCompletion(
+    settings,
+    [
+      {
+        role: 'system',
+        content: settings.systemPrompt,
+      },
+      {
+        role: 'user',
+        content: `Translate this book segment into ${motherLanguage}.
 
 Return JSON with exactly these fields:
 - translatedText: faithful literary translation into the reader's mother language
+- layout: object with header, title, body, notes, footer
 - commentary: contextual explanation that helps recover meaning lost in translation
 - keyTerms: array of up to 5 objects with term and explanation
 - reflectionPrompt: one question that helps the reader compare source and translation
+
+layout rules:
+- header: translated or copied running header/page header, empty string if none
+- title: translated standalone title or section heading, empty string if none
+- body: main translated content with paragraph and line breaks preserved
+- notes: array of translated footnotes, endnotes, marginal notes, or translator notes from this segment
+- footer: translated or copied page footer/page number, empty string if none
+- translatedText must combine the same content into a readable fallback plain text with visible line breaks.
 
 Formatting rules for translatedText:
 - Preserve title lines, headings, paragraph breaks, numbered lists, stanza breaks, and visible line breaks from the source as much as possible.
@@ -173,8 +423,11 @@ Formatting rules for translatedText:
 Source language hint: ${segment.sourceLanguage}
 Segment ${segment.index + 1}:
 ${segment.sourceText}`,
-    },
-  ]);
+      },
+    ],
+    undefined,
+    `translate segment ${segment.index + 1}`,
+  );
 
   if (!response.ok) {
     const detail = await response.text();
@@ -199,10 +452,11 @@ export const testLlmSettings = async (settings: LlmSettings) => {
   const response = await postChatCompletion(
     settings,
     [
-          { role: 'system', content: 'You are a connection test.' },
-          { role: 'user', content: 'Reply with exactly: LuminaBook OK' },
-        ],
+      { role: 'system', content: 'You are a connection test.' },
+      { role: 'user', content: 'Reply with exactly: LuminaBook OK' },
+    ],
     20,
+    'provider test',
   );
 
   if (!response.ok) {
@@ -257,6 +511,7 @@ ${note}`,
       },
     ],
     700,
+    `note response segment ${segment.index + 1}`,
   );
 
   if (!response.ok) {
