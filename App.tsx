@@ -2300,7 +2300,102 @@ interface PdfCanvasPageProps {
   pageNumber: number;
 }
 
-const alignPdfTextLayerSpans = (layer: HTMLDivElement, pageLayout: { textContent: any; viewport: any }) => {
+interface PdfPageLayout {
+  width: number;
+  height: number;
+  textContent: any;
+  viewport: any;
+}
+
+interface PdfSoftCrop {
+  enabled: boolean;
+  zoom: number;
+  translateX: number;
+}
+
+const PDF_SOFT_CROP_SIDE_GUTTER = 20;
+const PDF_SOFT_CROP_MAX_ZOOM = 1.45;
+const PDF_SOFT_CROP_MIN_ZOOM = 1.04;
+
+const clampNumber = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const computePdfSoftCrop = (pageLayout: PdfPageLayout): PdfSoftCrop => {
+  if (pageLayout.viewport.rotation % 180 !== 0) {
+    return { enabled: false, zoom: 1, translateX: 0 };
+  }
+
+  const itemBounds = (pageLayout.textContent.items || [])
+    .filter((item: any) => typeof item?.str === 'string' && item.str.trim() !== '' && item.width > 0)
+    .map((item: any) => {
+      const [, , , , x, y] = item.transform || [];
+
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return null;
+      }
+
+      const [startX, startY] = pageLayout.viewport.convertToViewportPoint(x, y);
+      const [endX] = pageLayout.viewport.convertToViewportPoint(x + item.width, y);
+
+      return {
+        left: Math.min(startX, endX),
+        right: Math.max(startX, endX),
+        y: startY,
+        textLength: item.str.trim().length,
+      };
+    })
+    .filter(Boolean) as Array<{ left: number; right: number; y: number; textLength: number }>;
+
+  if (itemBounds.length < 8) {
+    return { enabled: false, zoom: 1, translateX: 0 };
+  }
+
+  const lines = itemBounds
+    .sort((a, b) => a.y - b.y)
+    .reduce<Array<{ left: number; right: number; y: number; textLength: number }>>((groupedLines, item) => {
+      const line = groupedLines[groupedLines.length - 1];
+
+      if (line && Math.abs(line.y - item.y) <= 3) {
+        line.left = Math.min(line.left, item.left);
+        line.right = Math.max(line.right, item.right);
+        line.textLength += item.textLength;
+        return groupedLines;
+      }
+
+      groupedLines.push({ ...item });
+      return groupedLines;
+    }, []);
+
+  const wideLines = lines.filter((line) => line.textLength >= 12 && line.right - line.left >= pageLayout.width * 0.36);
+  const fallbackLines = lines.filter((line) => line.textLength >= 8 && line.right - line.left >= pageLayout.width * 0.25);
+  const cropLines = wideLines.length >= 3 ? wideLines : fallbackLines.length >= 3 ? fallbackLines : [];
+
+  if (cropLines.length < 3) {
+    return { enabled: false, zoom: 1, translateX: 0 };
+  }
+
+  const contentLeft = Math.min(...cropLines.map((line) => line.left));
+  const contentRight = Math.max(...cropLines.map((line) => line.right));
+  const contentWidth = contentRight - contentLeft;
+  const targetWidth = pageLayout.width - PDF_SOFT_CROP_SIDE_GUTTER * 2;
+
+  if (contentWidth <= 0 || targetWidth <= 0) {
+    return { enabled: false, zoom: 1, translateX: 0 };
+  }
+
+  const zoom = clampNumber(targetWidth / contentWidth, 1, PDF_SOFT_CROP_MAX_ZOOM);
+
+  if (zoom < PDF_SOFT_CROP_MIN_ZOOM) {
+    return { enabled: false, zoom: 1, translateX: 0 };
+  }
+
+  return {
+    enabled: true,
+    zoom,
+    translateX: PDF_SOFT_CROP_SIDE_GUTTER - contentLeft * zoom,
+  };
+};
+
+const alignPdfTextLayerSpans = (layer: HTMLDivElement, pageLayout: PdfPageLayout, visualScale: number) => {
   const spans = Array.from(layer.querySelectorAll<HTMLSpanElement>('span[role="presentation"]'));
   const textItems = (pageLayout.textContent.items || []).filter((item: any) => typeof item?.str === 'string' && item.str !== '');
   let spanIndex = 0;
@@ -2314,7 +2409,7 @@ const alignPdfTextLayerSpans = (layer: HTMLDivElement, pageLayout: { textContent
     }
 
     const rect = span.getBoundingClientRect();
-    const targetWidth = Math.abs(item.width * pageLayout.viewport.scale);
+    const targetWidth = Math.abs(item.width * pageLayout.viewport.scale * visualScale);
 
     if (!rect.width || !targetWidth) {
       continue;
@@ -2334,12 +2429,14 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => 
   const renderRequestRef = useRef(0);
   const [isRendering, setIsRendering] = useState(false);
   const [renderError, setRenderError] = useState('');
-  const [pageLayout, setPageLayout] = useState<{
-    width: number;
-    height: number;
-    textContent: any;
-    viewport: any;
-  } | null>(null);
+  const [pageLayout, setPageLayout] = useState<PdfPageLayout | null>(null);
+  const softCrop = useMemo(() => (pageLayout ? computePdfSoftCrop(pageLayout) : null), [pageLayout]);
+  const frameStyle = pageLayout
+    ? ({
+        width: `${pageLayout.width}px`,
+        height: `${Math.ceil(pageLayout.height * (softCrop?.zoom || 1))}px`,
+      } as React.CSSProperties)
+    : undefined;
   const pageStyle = pageLayout
     ? ({
         width: `${pageLayout.width}px`,
@@ -2347,6 +2444,8 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => 
         '--total-scale-factor': pageLayout.viewport.scale,
         '--scale-round-x': '1px',
         '--scale-round-y': '1px',
+        transform: softCrop?.enabled ? `translateX(${softCrop.translateX}px) scale(${softCrop.zoom})` : undefined,
+        transformOrigin: '0 0',
       } as React.CSSProperties)
     : undefined;
 
@@ -2422,7 +2521,7 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => 
     textLayer
       .render()
       .then(() => {
-        alignPdfTextLayerSpans(layer, pageLayout);
+        alignPdfTextLayerSpans(layer, pageLayout, softCrop?.zoom || 1);
       })
       .catch((error: unknown) => {
         if (error instanceof Error && /cancel/i.test(error.message)) {
@@ -2434,7 +2533,7 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => 
     return () => {
       textLayer.cancel();
     };
-  }, [pageLayout]);
+  }, [pageLayout, softCrop?.zoom]);
 
   return (
     <div ref={wrapperRef} className="relative flex min-h-[520px] justify-center">
@@ -2446,14 +2545,16 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => 
       {renderError ? (
         <div className="flex min-h-[420px] items-center justify-center text-sm text-red-700">{renderError}</div>
       ) : (
-        <div className="relative" style={pageStyle}>
-          <canvas ref={canvasRef} className="max-w-full bg-white shadow-sm" />
-          {pageLayout && (
-            <div
-              ref={textLayerRef}
-              className="pdf-text-layer textLayer absolute left-0 top-0 select-text"
-            />
-          )}
+        <div className={softCrop?.enabled ? 'pdf-soft-crop-frame relative' : 'relative'} style={frameStyle}>
+          <div className="relative" style={pageStyle}>
+            <canvas ref={canvasRef} className="max-w-full bg-white shadow-sm" />
+            {pageLayout && (
+              <div
+                ref={textLayerRef}
+                className="pdf-text-layer textLayer absolute left-0 top-0 select-text"
+              />
+            )}
+          </div>
         </div>
       )}
     </div>

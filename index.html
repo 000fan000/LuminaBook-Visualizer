@@ -105,6 +105,32 @@
       background: rgba(59, 130, 246, 0.32);
       color: transparent;
     }
+
+    .pdf-soft-crop-frame {
+      overflow: hidden;
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+    }
+
+    .pdf-soft-crop-frame::before,
+    .pdf-soft-crop-frame::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 20px;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .pdf-soft-crop-frame::before {
+      left: 0;
+      background: linear-gradient(90deg, #fbf8f1 0%, rgb(251 248 241 / 0) 100%);
+    }
+
+    .pdf-soft-crop-frame::after {
+      right: 0;
+      background: linear-gradient(270deg, #fbf8f1 0%, rgb(251 248 241 / 0) 100%);
+    }
   </style>
 </head>
 <body>
