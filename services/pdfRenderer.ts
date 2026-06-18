@@ -67,27 +67,11 @@ export const renderPdfPageToCanvas = async (
     includeMarkedContent: true,
     disableNormalization: true,
   });
-  const rawItems = textContent.items || [];
-
-  const textItems = rawItems
-    .filter((item: any) => item?.str)
-    .map((item: any) => {
-      const [, , , , x, y] = item.transform;
-      const [vx, vy] = viewport.convertToViewportPoint(x, y);
-      const fontHeight = Math.hypot(item.transform[2], item.transform[3]) * scale;
-
-      return {
-        str: item.str as string,
-        left: vx,
-        top: vy - fontHeight,
-        width: Math.max(1, (item.width || item.str.length * 5) * scale),
-        height: Math.max(8, fontHeight),
-      };
-    });
 
   return {
     width: Math.floor(viewport.width),
     height: Math.floor(viewport.height),
-    textItems,
+    textContent,
+    viewport,
   };
 };

@@ -47,6 +47,64 @@
     .custom-scrollbar::-webkit-scrollbar {
       width: 4px;
     }
+
+    .pdf-text-layer {
+      color-scheme: only light;
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      opacity: 1;
+      line-height: 1;
+      letter-spacing: normal;
+      word-spacing: normal;
+      -webkit-text-size-adjust: none;
+      text-size-adjust: none;
+      forced-color-adjust: none;
+      transform-origin: 0 0;
+      z-index: 1;
+      --total-scale-factor: 1;
+      --scale-round-x: 1px;
+      --scale-round-y: 1px;
+      --min-font-size: 1;
+      --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+      --min-font-size-inv: calc(1 / var(--min-font-size));
+    }
+
+    .pdf-text-layer span,
+    .pdf-text-layer br {
+      color: transparent;
+      position: absolute;
+      white-space: pre;
+      cursor: text;
+      transform-origin: 0% 0%;
+      -webkit-user-select: text;
+      user-select: text;
+    }
+
+    .pdf-text-layer > :not(.markedContent),
+    .pdf-text-layer .markedContent span:not(.markedContent) {
+      z-index: 1;
+      --font-height: 0;
+      font-size: calc(var(--text-scale-factor) * var(--font-height));
+      --scale-x: 1;
+      --rotate: 0deg;
+      transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+    }
+
+    .pdf-text-layer .markedContent {
+      display: contents;
+    }
+
+    .pdf-text-layer span[role="img"] {
+      -webkit-user-select: none;
+      user-select: none;
+      cursor: default;
+    }
+
+    .pdf-text-layer ::selection {
+      background: rgba(59, 130, 246, 0.32);
+      color: transparent;
+    }
   </style>
 </head>
 <body>

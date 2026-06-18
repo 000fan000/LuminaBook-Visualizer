@@ -21,6 +21,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { TextLayer } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { parseBookFile } from './services/bookIngestion';
 import { loadBooksFromLibrary, saveBookToLibrary } from './services/libraryStorage';
 import {
@@ -2299,17 +2300,55 @@ interface PdfCanvasPageProps {
   pageNumber: number;
 }
 
+const alignPdfTextLayerSpans = (layer: HTMLDivElement, pageLayout: { textContent: any; viewport: any }) => {
+  const spans = Array.from(layer.querySelectorAll<HTMLSpanElement>('span[role="presentation"]'));
+  const textItems = (pageLayout.textContent.items || []).filter((item: any) => typeof item?.str === 'string' && item.str !== '');
+  let spanIndex = 0;
+
+  for (const item of textItems) {
+    const span = spans[spanIndex];
+    spanIndex += 1;
+
+    if (!span || item.str === '' || !item.width) {
+      continue;
+    }
+
+    const rect = span.getBoundingClientRect();
+    const targetWidth = Math.abs(item.width * pageLayout.viewport.scale);
+
+    if (!rect.width || !targetWidth) {
+      continue;
+    }
+
+    const currentScale = Number.parseFloat(span.style.getPropertyValue('--scale-x')) || 1;
+    const adjustedScale = currentScale * (targetWidth / rect.width);
+    span.style.setProperty('--scale-x', String(adjustedScale));
+  }
+};
+
 const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const textLayerRef = useRef<HTMLDivElement>(null);
+  const textLayerRenderRef = useRef<any>(null);
   const renderRequestRef = useRef(0);
   const [isRendering, setIsRendering] = useState(false);
   const [renderError, setRenderError] = useState('');
   const [pageLayout, setPageLayout] = useState<{
     width: number;
     height: number;
-    textItems: Array<{ str: string; left: number; top: number; width: number; height: number }>;
+    textContent: any;
+    viewport: any;
   } | null>(null);
+  const pageStyle = pageLayout
+    ? ({
+        width: `${pageLayout.width}px`,
+        height: `${pageLayout.height}px`,
+        '--total-scale-factor': pageLayout.viewport.scale,
+        '--scale-round-x': '1px',
+        '--scale-round-y': '1px',
+      } as React.CSSProperties)
+    : undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -2323,6 +2362,7 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => 
       setIsRendering(true);
       setRenderError('');
       const requestId = (renderRequestRef.current += 1);
+      textLayerRenderRef.current?.cancel?.();
 
       try {
         const layout = await renderPdfPageToCanvas(source, pageNumber, canvasRef.current, wrapperRef.current.clientWidth - 24);
@@ -2353,10 +2393,48 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => 
 
     return () => {
       cancelled = true;
+      textLayerRenderRef.current?.cancel?.();
       window.clearTimeout(resizeTimer);
       observer.disconnect();
     };
   }, [source, pageNumber]);
+
+  useEffect(() => {
+    if (!pageLayout || !textLayerRef.current) {
+      return;
+    }
+
+    const layer = textLayerRef.current;
+    layer.replaceChildren();
+    textLayerRenderRef.current?.cancel?.();
+    layer.style.setProperty('--total-scale-factor', String(pageLayout.viewport.scale));
+    layer.style.setProperty('--scale-round-x', '1px');
+    layer.style.setProperty('--scale-round-y', '1px');
+
+    const textLayer = new TextLayer({
+      textContentSource: pageLayout.textContent,
+      container: layer,
+      viewport: pageLayout.viewport,
+    });
+    layer.style.width = `${pageLayout.width}px`;
+    layer.style.height = `${pageLayout.height}px`;
+    textLayerRenderRef.current = textLayer;
+    textLayer
+      .render()
+      .then(() => {
+        alignPdfTextLayerSpans(layer, pageLayout);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && /cancel/i.test(error.message)) {
+          return;
+        }
+        console.warn('Could not render PDF text layer.', error);
+      });
+
+    return () => {
+      textLayer.cancel();
+    };
+  }, [pageLayout]);
 
   return (
     <div ref={wrapperRef} className="relative flex min-h-[520px] justify-center">
@@ -2368,30 +2446,13 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => 
       {renderError ? (
         <div className="flex min-h-[420px] items-center justify-center text-sm text-red-700">{renderError}</div>
       ) : (
-        <div className="relative">
+        <div className="relative" style={pageStyle}>
           <canvas ref={canvasRef} className="max-w-full bg-white shadow-sm" />
           {pageLayout && (
             <div
-              className="absolute left-0 top-0 select-text text-transparent"
-              style={{ width: `${pageLayout.width}px`, height: `${pageLayout.height}px` }}
-            >
-              {pageLayout.textItems.map((item, index) => (
-                <span
-                  key={`${item.str}-${index}`}
-                  className="absolute whitespace-pre"
-                  style={{
-                    left: `${item.left}px`,
-                    top: `${item.top}px`,
-                    width: `${item.width}px`,
-                    height: `${item.height}px`,
-                    fontSize: `${item.height}px`,
-                    lineHeight: 1,
-                  }}
-                >
-                  {item.str}
-                </span>
-              ))}
-            </div>
+              ref={textLayerRef}
+              className="pdf-text-layer textLayer absolute left-0 top-0 select-text"
+            />
           )}
         </div>
       )}
