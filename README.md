@@ -75,3 +75,4 @@ For the Electron app, LLM profiles are routed through a preload bridge and persi
 - Routed Electron LLM profile persistence through the main process with `safeStorage` support.
 - Kept the existing Vite web app workflow unchanged.
 - Added `dev:mac`, `package:mac`, and `make:mac` npm scripts.
+- Added anchored LLM annotation cards that open on the original book page and highlight their source text on hover.

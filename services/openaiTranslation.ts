@@ -1,4 +1,4 @@
-import { LlmSettings, SourceSegment, TranslationResult } from '../types';
+import { LlmAnnotation, LlmSettings, SourceSegment, TranslationResult } from '../types';
 import { saveLlmEvaluationRecord } from './llmEvaluationStorage';
 
 interface ChatCompletionResponse {
@@ -83,10 +83,37 @@ const parseJsonContent = (content: string): TranslationResult => {
     : {
         body: parsed.translatedText || '',
       };
+  const annotations = Array.isArray(parsed.annotations)
+    ? parsed.annotations
+        .map((annotation): LlmAnnotation | null => {
+          if (!annotation || typeof annotation !== 'object') {
+            return null;
+          }
+
+          const sourceText = String(annotation.sourceText || '').trim();
+          const title = String(annotation.title || '').trim();
+          const body = String(annotation.body || '').trim();
+          const kind: LlmAnnotation['kind'] =
+            annotation.kind === 'term' ||
+            annotation.kind === 'translation' ||
+            annotation.kind === 'reflection'
+              ? annotation.kind
+              : 'context';
+
+          return sourceText && title && body ? { sourceText, title, body, kind } : null;
+        })
+        .filter((annotation): annotation is LlmAnnotation => Boolean(annotation))
+        .slice(0, 6)
+    : [];
 
   return {
     ...parsed,
     layout,
+    translatedText: parsed.translatedText || layout.body,
+    commentary: parsed.commentary || '',
+    keyTerms: Array.isArray(parsed.keyTerms) ? parsed.keyTerms : [],
+    reflectionPrompt: parsed.reflectionPrompt || '',
+    annotations,
   };
 };
 
@@ -417,6 +444,18 @@ Return JSON with exactly these fields:
 - commentary: contextual explanation that helps recover meaning lost in translation
 - keyTerms: array of up to 5 objects with term and explanation
 - reflectionPrompt: one question that helps the reader compare source and translation
+- annotations: array of up to 6 objects with sourceText, title, body, and kind
+
+annotation rules:
+- sourceText must be an exact term or short phrase copied from <target_segment>, between 2 and 40 characters
+- sourceText should normally contain 1 to 6 words and must never be a full sentence
+- sourceText must stay within one source line and must not contain line breaks
+- never use text from <previous_context> or <next_context> as an annotation sourceText
+- title is a short annotation heading
+- body is a concise explanation of the term, context, ambiguity, translation choice, or reflection
+- kind must be one of: term, context, translation, reflection
+- prioritize phrases where historical context, ambiguity, metaphor, syntax, or translation loss matters
+- omit any annotation that cannot be anchored to an exact sourceText quote
 
 layout rules:
 - header: translated or copied running header/page header, empty string if none

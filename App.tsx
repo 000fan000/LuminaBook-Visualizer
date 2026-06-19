@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertCircle,
   ArrowLeft,
@@ -38,6 +39,7 @@ import {
   Bookmark,
   Highlight,
   KnowledgeCard,
+  LlmAnnotation,
   LlmEvaluationRecord,
   LlmProfile,
   LlmSettings,
@@ -953,6 +955,7 @@ const App: React.FC = () => {
             commentary: result.commentary,
             keyTerms: result.keyTerms || [],
             reflectionPrompt: result.reflectionPrompt,
+            annotations: result.annotations || [],
           },
         },
       }));
@@ -1002,6 +1005,7 @@ const App: React.FC = () => {
               commentary: result.commentary,
               keyTerms: result.keyTerms || [],
               reflectionPrompt: result.reflectionPrompt,
+              annotations: result.annotations || [],
             },
           },
         }));
@@ -1894,6 +1898,10 @@ const ReaderView: React.FC<ReaderViewProps> = ({
 }) => {
   const [isTocOpen, setIsTocOpen] = useState(false);
   const tocEntries = book.toc || [];
+  const annotationCards = useMemo(
+    () => buildAnnotationCards(activeTranslation, activeSegment.sourceText),
+    [activeTranslation, activeSegment.sourceText],
+  );
 
   return (
   <div className="flex min-h-screen flex-col bg-[#f2eadc] text-stone-950">
@@ -2010,6 +2018,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             readingThemes={readingThemes}
             highlights={highlights.filter((highlight) => highlight.pageSide === 'original')}
             knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'original')}
+            annotations={annotationCards}
             hoverHighlightText={hoveredNoteSourceText}
             onAddHighlight={() => onAddHighlight('original')}
             onCreateKnowledgeCard={() => onCreateKnowledgeCard('original')}
@@ -2029,6 +2038,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             pageLabel={getSourcePageLabel(activeSegment)}
             highlights={highlights.filter((highlight) => highlight.pageSide === 'translation')}
             knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'translation')}
+            annotations={annotationCards}
             onModeChange={onRightPaneModeChange}
             onHoverNoteSource={onHoverNoteSource}
             onThemeChange={onTranslationThemeChange}
@@ -2210,6 +2220,7 @@ interface BookPageProps {
   readingThemes: ReadingTheme[];
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
+  annotations: AnnotationCard[];
   hoverHighlightText?: string;
   onAddHighlight: () => void;
   onCreateKnowledgeCard: () => void;
@@ -2218,6 +2229,53 @@ interface BookPageProps {
   onSaveTheme: () => void;
   muted?: boolean;
 }
+
+interface AnnotationCard extends LlmAnnotation {
+  id: string;
+}
+
+const ANNOTATION_KIND_LABELS: Record<LlmAnnotation['kind'], string> = {
+  term: 'Key term',
+  context: 'Context',
+  translation: 'Translation',
+  reflection: 'Reflection',
+};
+
+const ANNOTATION_KIND_STYLES: Record<LlmAnnotation['kind'], string> = {
+  term: 'bg-amber-100 text-amber-900',
+  context: 'bg-teal-100 text-teal-900',
+  translation: 'bg-sky-100 text-sky-900',
+  reflection: 'bg-rose-100 text-rose-900',
+};
+
+interface AnnotationCardContentProps {
+  annotation: AnnotationCard;
+  index: number;
+}
+
+const AnnotationCardContent: React.FC<AnnotationCardContentProps> = ({ annotation, index }) => (
+  <>
+    <div className="flex items-start justify-between gap-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-stone-900 px-1 text-[10px] font-semibold text-white">
+          {index + 1}
+        </span>
+        <h3 className="text-sm font-semibold leading-5 text-stone-900">{annotation.title}</h3>
+      </div>
+      <span className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${ANNOTATION_KIND_STYLES[annotation.kind]}`}>
+        {ANNOTATION_KIND_LABELS[annotation.kind]}
+      </span>
+    </div>
+    <blockquote className="mt-3 border-l-2 border-amber-400 pl-3 font-serif text-sm italic leading-5 text-stone-700">
+      {annotation.sourceText}
+    </blockquote>
+    <p className="mt-3 text-sm leading-6 text-stone-700">{annotation.body}</p>
+  </>
+);
+
+const AnnotationPopupCard: React.FC<AnnotationCardContentProps> = ({ annotation, index }) => (
+  <AnnotationCardContent annotation={annotation} index={index} />
+);
 
 const BookPage: React.FC<BookPageProps> = ({
   eyebrow,
@@ -2232,6 +2290,7 @@ const BookPage: React.FC<BookPageProps> = ({
   readingThemes,
   highlights,
   knowledgeCards,
+  annotations,
   hoverHighlightText = '',
   onAddHighlight,
   onCreateKnowledgeCard,
@@ -2298,11 +2357,22 @@ const BookPage: React.FC<BookPageProps> = ({
             {hoverHighlightText}
           </div>
         )}
-        <PdfCanvasPage source={pdfData || pdfUrl} pageNumber={pdfPage || 1} />
+        <PdfCanvasPage
+          source={pdfData || pdfUrl}
+          pageNumber={pdfPage || 1}
+          highlightText={hoverHighlightText}
+          annotations={annotations}
+        />
       </div>
     ) : (
       <>
-        <FormattedReadingText text={body} muted={muted} hoverHighlightText={hoverHighlightText} theme={readingTheme} />
+        <FormattedReadingText
+          text={body}
+          muted={muted}
+          hoverHighlightText={hoverHighlightText}
+          annotations={annotations}
+          theme={readingTheme}
+        />
         {isFormatOpen && readingTheme && (
           <ReadingThemePopover
             title="Original Format"
@@ -2372,6 +2442,7 @@ interface RightReaderPaneProps {
   pageLabel: string;
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
+  annotations: AnnotationCard[];
   onModeChange: (mode: RightPaneMode) => void;
   onHoverNoteSource: (text: string) => void;
   onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
@@ -2396,6 +2467,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   pageLabel,
   highlights,
   knowledgeCards,
+  annotations,
   onModeChange,
   onHoverNoteSource,
   onThemeChange,
@@ -2430,7 +2502,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
               : 'Waiting for translation'
             : mode === 'notes'
               ? 'Reader notebook'
-              : 'Translation notes and reader marks'}
+              : 'Anchored annotations and reader marks'}
         </h2>
       </div>
       <div className="flex items-center gap-2">
@@ -2520,6 +2592,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
     ) : (
       <AnnotationView
         activeTranslation={activeTranslation}
+        annotations={annotations}
         highlights={highlights}
         knowledgeCards={knowledgeCards}
         noteResponse={note?.llmResponse || ''}
@@ -2533,6 +2606,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
 
 interface AnnotationViewProps {
   activeTranslation: TranslatedSegment | null;
+  annotations: AnnotationCard[];
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
   noteResponse: string;
@@ -2542,6 +2616,7 @@ interface AnnotationViewProps {
 
 const AnnotationView: React.FC<AnnotationViewProps> = ({
   activeTranslation,
+  annotations,
   highlights,
   knowledgeCards,
   noteResponse,
@@ -2551,18 +2626,27 @@ const AnnotationView: React.FC<AnnotationViewProps> = ({
   <div className="flex-1 overflow-y-auto">
     <div className="space-y-5">
       <section>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Translation Notes</p>
-        {activeTranslation ? (
-          <ol className="mt-3 space-y-3 text-sm leading-6 text-stone-700">
-            {buildTranslationNotes(activeTranslation).map((item, index) => (
-              <li key={`${item}-${index}`} className="grid grid-cols-[24px_1fr] gap-2">
-                <span className="text-stone-400">{index + 1}</span>
-                <span>{item}</span>
-              </li>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Annotation Cards</p>
+        {annotations.length > 0 ? (
+          <div className="mt-3 grid gap-3">
+            {annotations.map((annotation, index) => (
+              <article
+                key={annotation.id}
+                tabIndex={0}
+                onMouseEnter={() => onHoverNoteSource(annotation.sourceText)}
+                onMouseLeave={() => onHoverNoteSource('')}
+                onFocus={() => onHoverNoteSource(annotation.sourceText)}
+                onBlur={() => onHoverNoteSource('')}
+                className="rounded-md border border-stone-200 bg-white p-3 text-left shadow-sm outline-none transition hover:border-amber-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-200"
+              >
+                <AnnotationCardContent annotation={annotation} index={index} />
+              </article>
             ))}
-          </ol>
+          </div>
         ) : (
-          <p className="mt-3 text-sm italic text-stone-400">No translation notes yet.</p>
+          <p className="mt-3 text-sm italic text-stone-400">
+            {activeTranslation ? 'No anchored annotations were generated for this page.' : 'No annotations yet.'}
+          </p>
         )}
       </section>
 
@@ -2613,6 +2697,8 @@ const AnnotationView: React.FC<AnnotationViewProps> = ({
 interface PdfCanvasPageProps {
   source: string | ArrayBuffer;
   pageNumber: number;
+  highlightText?: string;
+  annotations?: AnnotationCard[];
 }
 
 interface PdfPageLayout {
@@ -2736,15 +2822,102 @@ const alignPdfTextLayerSpans = (layer: HTMLDivElement, pageLayout: PdfPageLayout
   }
 };
 
-const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => {
+const applyPdfTextLayerHighlight = (layer: HTMLDivElement, phrase: string) => {
+  const target = normalizeComparableText(phrase).toLocaleLowerCase();
+  const anchors = Array.from(layer.querySelectorAll<HTMLElement>('mark.pdf-annotation-anchor'));
+
+  anchors.forEach((anchor) => {
+    const anchorText = normalizeComparableText(anchor.textContent || '').toLocaleLowerCase();
+    anchor.classList.toggle('pdf-external-highlight', Boolean(target && anchorText === target));
+  });
+};
+
+const clearPdfAnnotationAnchors = (layer: HTMLDivElement) => {
+  const anchors = Array.from(layer.querySelectorAll<HTMLElement>('mark.pdf-annotation-anchor'));
+
+  anchors.forEach((anchor) => {
+    const parent = anchor.parentNode;
+    anchor.replaceWith(document.createTextNode(anchor.textContent || ''));
+    parent?.normalize();
+  });
+};
+
+const applyPdfAnnotationAnchors = (
+  layer: HTMLDivElement,
+  annotations: AnnotationCard[],
+  onOpen: (annotation: AnnotationCard, index: number, element: HTMLElement) => void,
+  onClose: () => void,
+) => {
+  clearPdfAnnotationAnchors(layer);
+  const spans = Array.from(layer.querySelectorAll<HTMLSpanElement>('span[role="presentation"]'));
+
+  spans.forEach((span) => {
+    const text = span.textContent || '';
+    const matches = annotations
+      .map((annotation, index) => ({
+        annotation,
+        index,
+        start: text.toLocaleLowerCase().indexOf(annotation.sourceText.toLocaleLowerCase()),
+      }))
+      .filter((match) => match.start >= 0)
+      .sort((a, b) => a.start - b.start || b.annotation.sourceText.length - a.annotation.sourceText.length);
+
+    if (!matches.length) {
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+
+    matches.forEach((match) => {
+      if (match.start < cursor) {
+        return;
+      }
+
+      if (match.start > cursor) {
+        fragment.append(document.createTextNode(text.slice(cursor, match.start)));
+      }
+
+      const anchor = document.createElement('mark');
+      anchor.className = 'pdf-annotation-anchor';
+      anchor.textContent = text.slice(match.start, match.start + match.annotation.sourceText.length);
+      anchor.tabIndex = 0;
+      anchor.onmouseenter = () => onOpen(match.annotation, match.index, anchor);
+      anchor.onmouseleave = onClose;
+      anchor.onfocus = () => onOpen(match.annotation, match.index, anchor);
+      anchor.onblur = onClose;
+      fragment.append(anchor);
+      cursor = match.start + match.annotation.sourceText.length;
+    });
+
+    if (cursor < text.length) {
+      fragment.append(document.createTextNode(text.slice(cursor)));
+    }
+
+    span.replaceChildren(fragment);
+  });
+};
+
+const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber, highlightText = '', annotations = [] }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const textLayerRenderRef = useRef<any>(null);
+  const highlightTextRef = useRef(highlightText);
+  const annotationsRef = useRef(annotations);
   const renderRequestRef = useRef(0);
   const [isRendering, setIsRendering] = useState(false);
   const [renderError, setRenderError] = useState('');
   const [pageLayout, setPageLayout] = useState<PdfPageLayout | null>(null);
+  const [floatingAnnotation, setFloatingAnnotation] = useState<{
+    annotation: AnnotationCard;
+    index: number;
+    position: FloatingAnnotationPosition;
+  } | null>(null);
+  const openPdfAnnotationRef = useRef((annotation: AnnotationCard, index: number, element: HTMLElement) => {
+    setFloatingAnnotation({ annotation, index, position: getFloatingAnnotationPosition(element) });
+  });
+  const closePdfAnnotationRef = useRef(() => setFloatingAnnotation(null));
   const softCrop = useMemo(() => (pageLayout ? computePdfSoftCrop(pageLayout) : null), [pageLayout]);
   const frameStyle = pageLayout
     ? ({
@@ -2814,6 +2987,28 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => 
   }, [source, pageNumber]);
 
   useEffect(() => {
+    highlightTextRef.current = highlightText;
+
+    if (textLayerRef.current) {
+      applyPdfTextLayerHighlight(textLayerRef.current, highlightText);
+    }
+  }, [highlightText]);
+
+  useEffect(() => {
+    annotationsRef.current = annotations;
+
+    if (textLayerRef.current) {
+      applyPdfAnnotationAnchors(
+        textLayerRef.current,
+        annotations,
+        (...args) => openPdfAnnotationRef.current(...args),
+        () => closePdfAnnotationRef.current(),
+      );
+      applyPdfTextLayerHighlight(textLayerRef.current, highlightTextRef.current);
+    }
+  }, [annotations]);
+
+  useEffect(() => {
     if (!pageLayout || !textLayerRef.current) {
       return;
     }
@@ -2837,6 +3032,13 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => 
       .render()
       .then(() => {
         alignPdfTextLayerSpans(layer, pageLayout, softCrop?.zoom || 1);
+        applyPdfAnnotationAnchors(
+          layer,
+          annotationsRef.current,
+          (...args) => openPdfAnnotationRef.current(...args),
+          () => closePdfAnnotationRef.current(),
+        );
+        applyPdfTextLayerHighlight(layer, highlightTextRef.current);
       })
       .catch((error: unknown) => {
         if (error instanceof Error && /cancel/i.test(error.message)) {
@@ -2847,6 +3049,7 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => 
 
     return () => {
       textLayer.cancel();
+      clearPdfAnnotationAnchors(layer);
     };
   }, [pageLayout, softCrop?.zoom]);
 
@@ -2871,6 +3074,13 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber }) => 
             )}
           </div>
         </div>
+      )}
+      {floatingAnnotation && (
+        <FloatingAnnotationCard
+          annotation={floatingAnnotation.annotation}
+          index={floatingAnnotation.index}
+          position={floatingAnnotation.position}
+        />
       )}
     </div>
   );
@@ -2948,6 +3158,7 @@ interface FormattedReadingTextProps {
   muted?: boolean;
   theme?: ReadingTheme;
   hoverHighlightText?: string;
+  annotations?: AnnotationCard[];
   sourceText?: string;
   formatPageFrame?: boolean;
 }
@@ -3081,6 +3292,7 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
   muted,
   theme,
   hoverHighlightText = '',
+  annotations = [],
   sourceText,
   formatPageFrame,
 }) => {
@@ -3109,7 +3321,12 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
       style={textStyle}
     >
       {hasStructuredLayout && layout ? (
-        <StructuredReadingLayout layout={layout} hoverHighlightText={hoverHighlightText} theme={theme} />
+        <StructuredReadingLayout
+          layout={layout}
+          hoverHighlightText={hoverHighlightText}
+          annotations={annotations}
+          theme={theme}
+        />
       ) : (
         lines.map((line, index) => {
           if (line.role === 'blank') {
@@ -3138,7 +3355,7 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
                     : undefined
                 }
               >
-                <HighlightedLine line={line.text} phrase={hoverHighlightText} />
+                <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} />
               </div>
             );
           }
@@ -3159,7 +3376,7 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
                     : undefined
                 }
               >
-                <HighlightedLine line={line.text} phrase={hoverHighlightText} />
+                <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} />
               </div>
             );
           }
@@ -3171,14 +3388,14 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
                 className="my-2 text-center text-[1.08rem] font-semibold leading-7 md:text-[1.12rem]"
                 style={theme ? { color: theme.textColor, textAlign: 'center' } : undefined}
               >
-                <HighlightedLine line={line.text} phrase={hoverHighlightText} />
+                <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} />
               </div>
             );
           }
 
           return (
             <div key={`${line.text}-${index}`}>
-              <HighlightedLine line={line.text} phrase={hoverHighlightText} />
+              <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} />
             </div>
           );
         })
@@ -3190,10 +3407,11 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
 interface StructuredReadingLayoutProps {
   layout: TranslationLayout;
   hoverHighlightText: string;
+  annotations: AnnotationCard[];
   theme?: ReadingTheme;
 }
 
-const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layout, hoverHighlightText, theme }) => (
+const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layout, hoverHighlightText, annotations, theme }) => (
   <>
     {layout.header?.trim() && (
       <div
@@ -3209,7 +3427,7 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
             : undefined
         }
       >
-        <HighlightedLine line={layout.header} phrase={hoverHighlightText} />
+        <HighlightedLine line={layout.header} phrase={hoverHighlightText} annotations={annotations} />
       </div>
     )}
 
@@ -3218,7 +3436,7 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
         className="mb-5 text-center text-[1.08rem] font-semibold leading-7 md:text-[1.12rem]"
         style={theme ? { color: theme.textColor, textAlign: 'center' } : undefined}
       >
-        <HighlightedLine line={layout.title} phrase={hoverHighlightText} />
+        <HighlightedLine line={layout.title} phrase={hoverHighlightText} annotations={annotations} />
       </div>
     )}
 
@@ -3235,11 +3453,11 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
           className="my-2 text-center text-[1.08rem] font-semibold leading-7 md:text-[1.12rem]"
           style={theme ? { color: theme.textColor, textAlign: 'center' } : undefined}
         >
-          <HighlightedLine line={line.text} phrase={hoverHighlightText} />
+          <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} />
         </div>
       ) : (
         <div key={`structured-body-${line.text}-${index}`}>
-          <HighlightedLine line={line.text} phrase={hoverHighlightText} />
+          <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} />
         </div>
       ),
     )}
@@ -3253,7 +3471,7 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
           <li key={`${note}-${index}`} className="grid grid-cols-[1.5rem_1fr] gap-2">
             <span>{index + 1}</span>
             <span>
-              <HighlightedLine line={String(note)} phrase={hoverHighlightText} />
+              <HighlightedLine line={String(note)} phrase={hoverHighlightText} annotations={annotations} />
             </span>
           </li>
         ))}
@@ -3274,7 +3492,7 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
             : undefined
         }
       >
-        <HighlightedLine line={layout.footer} phrase={hoverHighlightText} />
+        <HighlightedLine line={layout.footer} phrase={hoverHighlightText} annotations={annotations} />
       </div>
     )}
   </>
@@ -3283,31 +3501,155 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
 interface HighlightedLineProps {
   line: string;
   phrase: string;
+  annotations?: AnnotationCard[];
 }
 
-const HighlightedLine: React.FC<HighlightedLineProps> = ({ line, phrase }) => {
+interface AnnotationLinePart {
+  text: string;
+  annotation?: AnnotationCard;
+  annotationIndex?: number;
+}
+
+const splitLineByAnnotations = (line: string, annotations: AnnotationCard[]): AnnotationLinePart[] => {
+  const parts: AnnotationLinePart[] = [];
+  let cursor = 0;
+
+  while (cursor < line.length) {
+    const next = annotations
+      .map((annotation, annotationIndex) => ({
+        annotation,
+        annotationIndex,
+        index: line.toLocaleLowerCase().indexOf(annotation.sourceText.toLocaleLowerCase(), cursor),
+      }))
+      .filter((match) => match.index >= 0)
+      .sort((a, b) => a.index - b.index || b.annotation.sourceText.length - a.annotation.sourceText.length)[0];
+
+    if (!next) {
+      parts.push({ text: line.slice(cursor) });
+      break;
+    }
+
+    if (next.index > cursor) {
+      parts.push({ text: line.slice(cursor, next.index) });
+    }
+
+    parts.push({
+      text: line.slice(next.index, next.index + next.annotation.sourceText.length),
+      annotation: next.annotation,
+      annotationIndex: next.annotationIndex,
+    });
+    cursor = next.index + next.annotation.sourceText.length;
+  }
+
+  return parts.length ? parts : [{ text: line }];
+};
+
+interface FloatingAnnotationPosition {
+  left: number;
+  top: number;
+  placeAbove: boolean;
+}
+
+const getFloatingAnnotationPosition = (element: HTMLElement): FloatingAnnotationPosition => {
+  const rect = element.getBoundingClientRect();
+  const cardWidth = Math.min(288, window.innerWidth - 24);
+  const left = Math.min(Math.max(12, rect.left + rect.width / 2 - cardWidth / 2), window.innerWidth - cardWidth - 12);
+  const placeAbove = rect.bottom + 240 > window.innerHeight && rect.top > 240;
+
+  return {
+    left,
+    top: placeAbove ? rect.top - 8 : rect.bottom + 8,
+    placeAbove,
+  };
+};
+
+interface FloatingAnnotationCardProps extends AnnotationCardContentProps {
+  position: FloatingAnnotationPosition;
+}
+
+const FloatingAnnotationCard: React.FC<FloatingAnnotationCardProps> = ({ annotation, index, position }) =>
+  createPortal(
+    <aside
+      role="tooltip"
+      className="pointer-events-none fixed z-[100] w-[min(18rem,calc(100vw-1.5rem))] rounded-md border border-stone-300 bg-[#fffdf8] p-4 text-left text-stone-900 shadow-2xl"
+      style={{
+        left: position.left,
+        top: position.top,
+        transform: position.placeAbove ? 'translateY(-100%)' : undefined,
+      }}
+    >
+      <AnnotationPopupCard annotation={annotation} index={index} />
+    </aside>,
+    document.body,
+  );
+
+const InlineAnnotationAnchor: React.FC<AnnotationCardContentProps & { text: string }> = ({ annotation, index, text }) => {
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const [position, setPosition] = useState<FloatingAnnotationPosition | null>(null);
+  const openCard = () => {
+    if (anchorRef.current) {
+      setPosition(getFloatingAnnotationPosition(anchorRef.current));
+    }
+  };
+
+  return (
+    <span
+      ref={anchorRef}
+      tabIndex={0}
+      onMouseEnter={openCard}
+      onMouseLeave={() => setPosition(null)}
+      onFocus={openCard}
+      onBlur={() => setPosition(null)}
+      className="cursor-help px-0.5 text-inherit underline decoration-2 decoration-stone-400 underline-offset-4 outline-none transition hover:decoration-stone-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400"
+    >
+      {text}
+      {position && <FloatingAnnotationCard annotation={annotation} index={index} position={position} />}
+    </span>
+  );
+};
+
+const renderHoverHighlightedText = (text: string, phrase: string) => {
   const normalizedPhrase = phrase.trim();
 
   if (!normalizedPhrase || normalizedPhrase.length < 3) {
-    return <>{line}</>;
+    return <>{text}</>;
   }
 
-  const index = line.toLocaleLowerCase().indexOf(normalizedPhrase.toLocaleLowerCase());
+  const index = text.toLocaleLowerCase().indexOf(normalizedPhrase.toLocaleLowerCase());
 
   if (index === -1) {
-    return <>{line}</>;
+    return <>{text}</>;
   }
 
   return (
     <>
-      {line.slice(0, index)}
+      {text.slice(0, index)}
       <mark className="rounded-sm bg-amber-200 px-0.5 text-stone-950 shadow-[0_0_0_2px_rgba(251,191,36,0.28)]">
-        {line.slice(index, index + normalizedPhrase.length)}
+        {text.slice(index, index + normalizedPhrase.length)}
       </mark>
-      {line.slice(index + normalizedPhrase.length)}
+      {text.slice(index + normalizedPhrase.length)}
     </>
   );
 };
+
+const HighlightedLine: React.FC<HighlightedLineProps> = ({ line, phrase, annotations = [] }) => (
+  <>
+    {splitLineByAnnotations(line, annotations).map((part, index) =>
+      part.annotation && part.annotationIndex !== undefined ? (
+        <InlineAnnotationAnchor
+          key={`${part.annotation.id}-${index}`}
+          annotation={part.annotation}
+          index={part.annotationIndex}
+          text={part.text}
+        />
+      ) : (
+        <React.Fragment key={`${part.text}-${index}`}>
+          {renderHoverHighlightedText(part.text, phrase)}
+        </React.Fragment>
+      ),
+    )}
+  </>
+);
 
 interface ReadingThemePopoverProps {
   title: string;
@@ -3487,6 +3829,48 @@ const HoverableLlmResponse: React.FC<HoverableLlmResponseProps> = ({ text, ancho
 
 const normalizeComparableText = (value: string) => value.replace(/\s+/g, ' ').trim();
 
+const escapeRegularExpression = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const isShortAnnotationAnchor = (value: string) => {
+  const words = value.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || [];
+  return value.length <= 40 && words.length <= 6 && !/[.!?。！？]$/.test(value.trim());
+};
+
+const findExactSourceText = (sourceText: string, requestedText: string) => {
+  const candidate = normalizeComparableText(requestedText);
+
+  if (candidate.length < 2) {
+    return '';
+  }
+
+  const pattern = candidate
+    .split(/\s+/)
+    .map(escapeRegularExpression)
+    .join('\\s+');
+  const match = sourceText.match(new RegExp(pattern, 'iu'))?.[0]?.trim() || '';
+
+  if (!match.includes('\n')) {
+    return match;
+  }
+
+  return match
+    .split(/\n+/)
+    .map((part) => part.trim())
+    .sort((a, b) => b.length - a.length)
+    .find((part) => part.length >= 2) || '';
+};
+
+const findSourceAnnotationAnchor = (sourceText: string, requestedText: string, title: string) => {
+  const requestedMatch = findExactSourceText(sourceText, requestedText);
+
+  if (requestedMatch && isShortAnnotationAnchor(requestedMatch)) {
+    return requestedMatch;
+  }
+
+  const titleMatch = findExactSourceText(sourceText, title);
+  return titleMatch && isShortAnnotationAnchor(titleMatch) ? titleMatch : '';
+};
+
 const buildNoteHoverAnchors = (response: string, sourceText: string): HoverAnchor[] => {
   const sourceLines = sourceText
     .split('\n')
@@ -3525,6 +3909,74 @@ const buildNoteHoverAnchors = (response: string, sourceText: string): HoverAncho
     .slice(0, 12);
 };
 
+const buildAnnotationCards = (translation: TranslatedSegment | null, sourceText: string): AnnotationCard[] => {
+  if (!translation) {
+    return [];
+  }
+
+  const cards: AnnotationCard[] = [];
+  const seen = new Set<string>();
+  const addCard = (annotation: LlmAnnotation, id: string) => {
+    const exactSourceText = findSourceAnnotationAnchor(sourceText, annotation.sourceText, annotation.title);
+    const key = `${exactSourceText.toLocaleLowerCase()}::${annotation.title.toLocaleLowerCase()}`;
+
+    if (!exactSourceText || seen.has(key) || cards.length >= 6) {
+      return;
+    }
+
+    seen.add(key);
+    cards.push({
+      ...annotation,
+      id,
+      sourceText: exactSourceText,
+    });
+  };
+
+  (translation.annotations || []).forEach((annotation, index) => {
+    addCard(annotation, `generated-${index}`);
+  });
+
+  translation.keyTerms.forEach((term, index) => {
+    addCard(
+      {
+        sourceText: term.term,
+        title: term.term,
+        body: term.explanation,
+        kind: 'term',
+      },
+      `term-${index}`,
+    );
+  });
+
+  const commentaryAnchor = buildNoteHoverAnchors(translation.commentary, sourceText)[0]?.sourceText;
+  if (translation.commentary && commentaryAnchor) {
+    addCard(
+      {
+        sourceText: commentaryAnchor,
+        title: 'Context',
+        body: translation.commentary,
+        kind: 'context',
+      },
+      'commentary',
+    );
+  }
+
+  const reflectionAnchor = buildNoteHoverAnchors(translation.reflectionPrompt, sourceText)[0]?.sourceText;
+  if (translation.reflectionPrompt && reflectionAnchor) {
+    addCard(
+      {
+        sourceText: reflectionAnchor,
+        title: 'Reflection',
+        body: translation.reflectionPrompt,
+        kind: 'reflection',
+      },
+      'reflection',
+    );
+  }
+
+  return cards;
+};
+
 const splitResponseByAnchors = (text: string, anchors: HoverAnchor[]) => {
   const parts: Array<{ text: string; anchor?: HoverAnchor }> = [];
   let index = 0;
@@ -3555,20 +4007,6 @@ const splitResponseByAnchors = (text: string, anchors: HoverAnchor[]) => {
   }
 
   return parts;
-};
-
-const buildTranslationNotes = (translation: TranslatedSegment) => {
-  const notes = [...translation.keyTerms.map((term) => `${term.term}: ${term.explanation}`)];
-
-  if (translation.commentary) {
-    notes.push(translation.commentary);
-  }
-
-  if (translation.reflectionPrompt) {
-    notes.push(`Reflection: ${translation.reflectionPrompt}`);
-  }
-
-  return notes;
 };
 
 export default App;

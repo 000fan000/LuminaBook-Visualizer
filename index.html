@@ -106,6 +106,30 @@
       color: transparent;
     }
 
+    .pdf-text-layer .pdf-external-highlight {
+      text-decoration-color: #57534e;
+      text-decoration-thickness: 2px;
+    }
+
+    .pdf-text-layer .pdf-annotation-anchor {
+      pointer-events: auto;
+      cursor: help;
+      color: transparent;
+      background: transparent;
+      text-decoration-line: underline;
+      text-decoration-color: #a8a29e;
+      text-decoration-thickness: 1.5px;
+      text-underline-offset: 3px;
+    }
+
+    .pdf-text-layer .pdf-annotation-anchor:hover,
+    .pdf-text-layer .pdf-annotation-anchor:focus {
+      background: transparent;
+      text-decoration-color: #57534e;
+      text-decoration-thickness: 2px;
+      outline: none;
+    }
+
     .pdf-soft-crop-frame {
       overflow: hidden;
       box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);

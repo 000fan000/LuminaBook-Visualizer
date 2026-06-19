@@ -39,11 +39,21 @@ export interface TranslatedSegment extends SourceSegment {
   commentary: string;
   keyTerms: KeyTerm[];
   reflectionPrompt: string;
+  annotations: LlmAnnotation[];
 }
 
 export interface KeyTerm {
   term: string;
   explanation: string;
+}
+
+export type LlmAnnotationKind = 'term' | 'context' | 'translation' | 'reflection';
+
+export interface LlmAnnotation {
+  sourceText: string;
+  title: string;
+  body: string;
+  kind: LlmAnnotationKind;
 }
 
 export interface LlmSettings {
@@ -72,6 +82,7 @@ export interface TranslationResult {
   commentary: string;
   keyTerms: KeyTerm[];
   reflectionPrompt: string;
+  annotations: LlmAnnotation[];
 }
 
 export interface TranslationLayout {
