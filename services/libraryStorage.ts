@@ -1,4 +1,4 @@
-import { UploadedBook } from '../types';
+import { BookMetadata, UploadedBook } from '../types';
 
 const DB_NAME = 'luminabook-reader';
 const DB_VERSION = 1;
@@ -7,6 +7,7 @@ const STORE_NAME = 'books';
 type StoredBook = Omit<UploadedBook, 'sourceUrl'> & {
   sourceBlob?: Blob;
   storedAt: string;
+  metadataUpdatedAt?: string;
 };
 
 const openLibraryDb = () =>
@@ -67,13 +68,49 @@ export const deleteBookFromLibrary = async (bookId: string) => {
   await runStoreRequest('readwrite', (store) => store.delete(bookId));
 };
 
+export const updateBookMetadataInLibrary = async (bookId: string, metadata: BookMetadata) => {
+  const db = await openLibraryDb();
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(bookId);
+
+    request.onsuccess = () => {
+      const record = request.result as StoredBook | undefined;
+
+      if (!record) {
+        transaction.abort();
+        reject(new Error('Saved book could not be found.'));
+        return;
+      }
+
+      store.put({
+        ...record,
+        ...metadata,
+        metadataUpdatedAt: new Date().toISOString(),
+      });
+    };
+    request.onerror = () => reject(request.error || new Error('Could not load the saved book.'));
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error || new Error('Could not update book metadata.'));
+    };
+    transaction.onabort = () => db.close();
+  });
+};
+
 export const loadBooksFromLibrary = async (): Promise<UploadedBook[]> => {
   try {
     const records = await runStoreRequest<StoredBook[]>('readonly', (store) => store.getAll());
 
     return records
       .sort((a, b) => b.storedAt.localeCompare(a.storedAt))
-      .map(({ sourceBlob, storedAt: _storedAt, ...book }) => ({
+      .map(({ sourceBlob, storedAt: _storedAt, metadataUpdatedAt: _metadataUpdatedAt, ...book }) => ({
         ...book,
         sourceUrl: sourceBlob ? URL.createObjectURL(sourceBlob) : undefined,
       }));

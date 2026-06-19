@@ -10,12 +10,14 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Download,
   Highlighter,
   KeyRound,
   Languages,
   ListTree,
   Library,
   Loader2,
+  Pencil,
   Play,
   Plus,
   Settings2,
@@ -26,17 +28,29 @@ import {
 } from 'lucide-react';
 import { TextLayer } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { parseBookFile } from './services/bookIngestion';
-import { deleteBookFromLibrary, loadBooksFromLibrary, saveBookToLibrary } from './services/libraryStorage';
+import {
+  deleteBookFromLibrary,
+  loadBooksFromLibrary,
+  saveBookToLibrary,
+  updateBookMetadataInLibrary,
+} from './services/libraryStorage';
 import {
   clearLlmEvaluationRecords,
   downloadLlmEvaluationCsv,
   loadLlmEvaluationRecords,
 } from './services/llmEvaluationStorage';
-import { PROVIDER_PRESETS, respondToReaderNote, testLlmSettings, translateSegment } from './services/openaiTranslation';
+import {
+  detectBookMetadata,
+  PROVIDER_PRESETS,
+  respondToReaderNote,
+  testLlmSettings,
+  translateSegment,
+} from './services/openaiTranslation';
 import { renderPdfPageToCanvas } from './services/pdfRenderer';
 import { hasDesktopProfileStore, loadDesktopLlmProfiles, saveDesktopLlmProfiles } from './platform';
 import {
   Bookmark,
+  BookMetadata,
   Highlight,
   KnowledgeCard,
   LlmAnnotation,
@@ -914,6 +928,107 @@ const App: React.FC = () => {
     }
   };
 
+  const updateBookMetadata = async (bookId: string, metadata: BookMetadata) => {
+    const targetBook = books.find((item) => item.id === bookId);
+
+    if (!targetBook) {
+      return;
+    }
+
+    const normalizedMetadata: BookMetadata = {
+      title: metadata.title.trim() || targetBook.title,
+      author: metadata.author?.trim() || undefined,
+      publicationYear: metadata.publicationYear,
+      country: metadata.country?.trim() || undefined,
+      language: metadata.language?.trim() || undefined,
+      publisher: metadata.publisher?.trim() || undefined,
+      tags: Array.from(
+        new Map(
+          (metadata.tags || [])
+            .map((tag) => tag.trim())
+            .filter(Boolean)
+            .map((tag) => [tag.toLocaleLowerCase(), tag]),
+        ).values(),
+      ).slice(0, 12),
+      description: metadata.description?.trim() || undefined,
+    };
+
+    try {
+      await updateBookMetadataInLibrary(bookId, normalizedMetadata);
+      setBooks((current) =>
+        current.map((item) => (item.id === bookId ? { ...item, ...normalizedMetadata } : item)),
+      );
+
+      if (normalizedMetadata.title !== targetBook.title) {
+        setBookmarks((current) =>
+          current.map((item) => (belongsToBook(item, targetBook) ? { ...item, bookTitle: normalizedMetadata.title } : item)),
+        );
+        setHighlights((current) =>
+          current.map((item) => (belongsToBook(item, targetBook) ? { ...item, bookTitle: normalizedMetadata.title } : item)),
+        );
+        setKnowledgeCards((current) =>
+          current.map((item) => (belongsToBook(item, targetBook) ? { ...item, bookTitle: normalizedMetadata.title } : item)),
+        );
+        setNotes((current) =>
+          current.map((item) => (belongsToBook(item, targetBook) ? { ...item, bookTitle: normalizedMetadata.title } : item)),
+        );
+        setReadingProgress((current) =>
+          current.map((item) => (belongsToBook(item, targetBook) ? { ...item, bookTitle: normalizedMetadata.title } : item)),
+        );
+      }
+
+      setErrorMessage('');
+      setStatusMessage(`${normalizedMetadata.title} details saved.`);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not update book details.');
+      throw error;
+    }
+  };
+
+  const autoDetectBookMetadata = async (bookId: string) => {
+    const targetBook = books.find((item) => item.id === bookId);
+
+    if (!targetBook) {
+      throw new Error('Book could not be found.');
+    }
+
+    persistActiveLlmProfile();
+
+    try {
+      return await detectBookMetadata(targetBook, settings);
+    } finally {
+      refreshEvaluationRecords();
+    }
+  };
+
+  const exportShelfInfo = () => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const shelfInfo = books.map((item) => ({
+      bookId: item.id,
+      originalFileName: item.fileName,
+      fileType: item.fileType,
+      title: item.title,
+      author: item.author || '',
+      publicationYear: item.publicationYear ?? null,
+      country: item.country || '',
+      language: item.language || '',
+      publisher: item.publisher || '',
+      tags: item.tags || [],
+      description: item.description || '',
+      pageCount: item.pageCount ?? null,
+      segmentCount: item.segments.length,
+    }));
+
+    downloadJsonFile(`luminabook-shelf-info-${timestamp}.json`, {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      bookCount: shelfInfo.length,
+      books: shelfInfo,
+    });
+    setStatusMessage(`Downloaded shelf information for ${shelfInfo.length} book${shelfInfo.length === 1 ? '' : 's'}.`);
+    setErrorMessage('');
+  };
+
   const getSegmentTranslationContext = (segment: UploadedBook['segments'][number]) => {
     if (!book) {
       return {};
@@ -1285,6 +1400,9 @@ const App: React.FC = () => {
       onImportLlmProfiles={importLlmProfiles}
       onOpenBook={openBook}
       onDeleteBook={deleteBook}
+      onUpdateBookMetadata={updateBookMetadata}
+      onDetectBookMetadata={autoDetectBookMetadata}
+      onExportShelfInfo={exportShelfInfo}
       bookmarks={bookmarks}
       onOpenBookmark={goToBookmark}
       isConfigOpen={isConfigOpen}
@@ -1324,6 +1442,9 @@ interface LibraryViewProps {
   onImportLlmProfiles: (file: File | null) => void;
   onOpenBook: (bookId: string) => void;
   onDeleteBook: (bookId: string) => void;
+  onUpdateBookMetadata: (bookId: string, metadata: BookMetadata) => Promise<void>;
+  onDetectBookMetadata: (bookId: string) => Promise<Partial<BookMetadata>>;
+  onExportShelfInfo: () => void;
   bookmarks: Bookmark[];
   onOpenBookmark: (bookmark: Bookmark) => void;
   isConfigOpen: boolean;
@@ -1361,6 +1482,9 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   onImportLlmProfiles,
   onOpenBook,
   onDeleteBook,
+  onUpdateBookMetadata,
+  onDetectBookMetadata,
+  onExportShelfInfo,
   bookmarks,
   onOpenBookmark,
   isConfigOpen,
@@ -1385,13 +1509,24 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           <p className="text-sm text-stone-600">Your bilingual great-books shelf</p>
         </div>
       </div>
-      <button
-        onClick={onOpenConfig}
-        className="flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 shadow-sm hover:bg-white"
-      >
-        <Settings2 className="h-4 w-4" />
-        Config
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onExportShelfInfo}
+          disabled={!books.length}
+          className="flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 shadow-sm hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
+          title="Download shelf information as JSON"
+        >
+          <Download className="h-4 w-4" />
+          <span className="hidden sm:inline">Shelf JSON</span>
+        </button>
+        <button
+          onClick={onOpenConfig}
+          className="flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 shadow-sm hover:bg-white"
+        >
+          <Settings2 className="h-4 w-4" />
+          Config
+        </button>
+      </div>
     </header>
 
     <main className="mx-auto max-w-7xl px-5 pb-12 pt-6">
@@ -1420,6 +1555,8 @@ const LibraryView: React.FC<LibraryViewProps> = ({
                   bookmarks={bookmarks.filter((bookmark) => belongsToBook(bookmark, book))}
                   onOpenReader={() => onOpenBook(book.id)}
                   onDeleteBook={() => onDeleteBook(book.id)}
+                  onUpdateBookMetadata={(metadata) => onUpdateBookMetadata(book.id, metadata)}
+                  onDetectBookMetadata={() => onDetectBookMetadata(book.id)}
                   onOpenBookmark={onOpenBookmark}
                 />
               );
@@ -2136,6 +2273,8 @@ interface BookCoverTileProps {
   bookmarks: Bookmark[];
   onOpenReader: () => void;
   onDeleteBook: () => void;
+  onUpdateBookMetadata: (metadata: BookMetadata) => Promise<void>;
+  onDetectBookMetadata: () => Promise<Partial<BookMetadata>>;
   onOpenBookmark: (bookmark: Bookmark) => void;
 }
 
@@ -2146,66 +2285,295 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
   bookmarks,
   onOpenReader,
   onDeleteBook,
+  onUpdateBookMetadata,
+  onDetectBookMetadata,
   onOpenBookmark,
-}) => (
-  <article className="group">
-    <div className="relative">
-      <button
-        onClick={onOpenReader}
-        disabled={!book}
-        className="flex aspect-[2/3] w-full flex-col justify-between overflow-hidden rounded-sm border border-stone-700 bg-stone-900 p-4 text-left text-[#fffdf8] shadow-[6px_8px_0_rgba(80,63,42,0.2)] transition hover:-translate-y-1 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-300">
-            {book?.fileType ? book.fileType.toUpperCase() : 'Empty'}
-          </p>
-          <h3 className="mt-5 max-h-32 overflow-hidden text-xl font-semibold leading-tight">
-            {book?.title || 'Upload a book to begin'}
-          </h3>
-          <p className="mt-3 max-h-10 overflow-hidden text-xs leading-5 text-stone-300">
-            {book?.author || book?.fileName || 'Source file'}
-          </p>
-        </div>
-        <div>
-          <div className="mb-2 h-1 overflow-hidden rounded-full bg-white/20">
-            <div className="h-full rounded-full bg-[#f2eadc]" style={{ width: `${progress}%` }} />
-          </div>
-          <p className="text-xs text-stone-300">
-            {book ? `${translatedCount}/${book.segments.length} translated` : 'No active book'}
-          </p>
-        </div>
-      </button>
-      {book && (
+}) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const facts = book ? [book.publicationYear, book.country].filter(Boolean).join(' · ') : '';
+
+  return (
+    <article className="group">
+      <div className="relative">
         <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onDeleteBook();
-          }}
-          title="Delete book"
-          aria-label={`Delete ${book.title}`}
-          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-sm border border-white/15 bg-black/45 text-stone-100 opacity-0 shadow-sm transition hover:bg-red-700 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-white/60 group-hover:opacity-100"
+          onClick={onOpenReader}
+          disabled={!book}
+          className="flex aspect-[2/3] w-full flex-col justify-between overflow-hidden rounded-sm border border-stone-700 bg-stone-900 p-4 text-left text-[#fffdf8] shadow-[6px_8px_0_rgba(80,63,42,0.2)] transition hover:-translate-y-1 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <Trash2 className="h-4 w-4" />
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-300">
+              {book?.fileType ? book.fileType.toUpperCase() : 'Empty'}
+            </p>
+            <h3 className="mt-5 max-h-32 overflow-hidden text-xl font-semibold leading-tight">
+              {book?.title || 'Upload a book to begin'}
+            </h3>
+            <p className="mt-3 max-h-10 overflow-hidden text-xs leading-5 text-stone-300">
+              {book?.author || book?.fileName || 'Source file'}
+            </p>
+            {facts && <p className="mt-2 truncate text-[11px] text-stone-400">{facts}</p>}
+            {book?.tags && book.tags.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1">
+                {book.tags.slice(0, 3).map((tag) => (
+                  <span key={tag} className="max-w-20 truncate rounded-sm bg-white/10 px-1.5 py-0.5 text-[10px] text-stone-200">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="mb-2 h-1 overflow-hidden rounded-full bg-white/20">
+              <div className="h-full rounded-full bg-[#f2eadc]" style={{ width: `${progress}%` }} />
+            </div>
+            <p className="text-xs text-stone-300">
+              {book ? `${translatedCount}/${book.segments.length} translated` : 'No active book'}
+            </p>
+          </div>
         </button>
-      )}
-    </div>
-    {bookmarks.length > 0 && (
-      <div className="mt-3 space-y-1">
-        {bookmarks.slice(-3).map((bookmark) => (
-          <button
-            key={bookmark.id}
-            onClick={() => onOpenBookmark(bookmark)}
-            className="flex w-full items-center gap-2 rounded px-1 py-1 text-left text-xs text-stone-700 hover:bg-[#fffdf8]"
-          >
-            <BookmarkIcon className="h-3.5 w-3.5 fill-current text-amber-600" />
-            <span className="truncate">{bookmark.label}</span>
-          </button>
-        ))}
+        {book && (
+          <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              title="Edit book details"
+              aria-label={`Edit ${book.title}`}
+              className="flex h-8 w-8 items-center justify-center rounded-sm border border-white/15 bg-black/45 text-stone-100 shadow-sm transition hover:bg-stone-700 focus:outline-none focus:ring-2 focus:ring-white/60"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onDeleteBook}
+              title="Delete book"
+              aria-label={`Delete ${book.title}`}
+              className="flex h-8 w-8 items-center justify-center rounded-sm border border-white/15 bg-black/45 text-stone-100 shadow-sm transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-white/60"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        )}
       </div>
-    )}
-  </article>
+      {bookmarks.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {bookmarks.slice(-3).map((bookmark) => (
+            <button
+              key={bookmark.id}
+              onClick={() => onOpenBookmark(bookmark)}
+              className="flex w-full items-center gap-2 rounded px-1 py-1 text-left text-xs text-stone-700 hover:bg-[#fffdf8]"
+            >
+              <BookmarkIcon className="h-3.5 w-3.5 fill-current text-amber-600" />
+              <span className="truncate">{bookmark.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {book && isEditing && (
+        <BookMetadataDialog
+          book={book}
+          onClose={() => setIsEditing(false)}
+          onSave={onUpdateBookMetadata}
+          onAutoDetect={onDetectBookMetadata}
+        />
+      )}
+    </article>
+  );
+};
+
+interface BookMetadataDialogProps {
+  book: UploadedBook;
+  onClose: () => void;
+  onSave: (metadata: BookMetadata) => Promise<void>;
+  onAutoDetect: () => Promise<Partial<BookMetadata>>;
+}
+
+interface MetadataFieldProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  placeholder?: string;
+}
+
+const MetadataField: React.FC<MetadataFieldProps> = ({ label, value, onChange, type = 'text', placeholder }) => (
+  <label className="block">
+    <span className="text-xs font-medium text-stone-600">{label}</span>
+    <input
+      type={type}
+      value={value}
+      placeholder={placeholder}
+      onChange={(event) => onChange(event.target.value)}
+      className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+    />
+  </label>
 );
+
+const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, onSave, onAutoDetect }) => {
+  const [title, setTitle] = useState(book.title);
+  const [author, setAuthor] = useState(book.author || '');
+  const [year, setYear] = useState(book.publicationYear ? String(book.publicationYear) : '');
+  const [country, setCountry] = useState(book.country || '');
+  const [language, setLanguage] = useState(book.language || '');
+  const [publisher, setPublisher] = useState(book.publisher || '');
+  const [tags, setTags] = useState((book.tags || []).join(', '));
+  const [description, setDescription] = useState(book.description || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [validationError, setValidationError] = useState('');
+  const [detectionStatus, setDetectionStatus] = useState('');
+  const isBusy = isSaving || isDetecting;
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isBusy) {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isBusy, onClose]);
+
+  const autoDetect = async () => {
+    setIsDetecting(true);
+    setValidationError('');
+    setDetectionStatus('');
+
+    try {
+      const detected = await onAutoDetect();
+      const detectedCount = [
+        !title.trim() && detected.title,
+        !author.trim() && detected.author,
+        !year.trim() && detected.publicationYear,
+        !country.trim() && detected.country,
+        !language.trim() && detected.language,
+        !publisher.trim() && detected.publisher,
+        !tags.trim() && detected.tags?.length,
+        !description.trim() && detected.description,
+      ].filter(Boolean).length;
+      setTitle((current) => current.trim() || detected.title || '');
+      setAuthor((current) => current.trim() || detected.author || '');
+      setYear((current) => current.trim() || (detected.publicationYear ? String(detected.publicationYear) : ''));
+      setCountry((current) => current.trim() || detected.country || '');
+      setLanguage((current) => current.trim() || detected.language || '');
+      setPublisher((current) => current.trim() || detected.publisher || '');
+      setTags((current) => current.trim() || (detected.tags || []).join(', '));
+      setDescription((current) => current.trim() || detected.description || '');
+      setDetectionStatus(
+        detectedCount
+          ? `Filled ${detectedCount} empty field${detectedCount > 1 ? 's' : ''}.`
+          : 'No additional metadata was detected.',
+      );
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : 'Could not detect book metadata.');
+    } finally {
+      setIsDetecting(false);
+    }
+  };
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const normalizedTitle = title.trim();
+    const normalizedYear = year.trim() ? Number.parseInt(year, 10) : undefined;
+
+    if (!normalizedTitle) {
+      setValidationError('Title is required.');
+      return;
+    }
+
+    if (normalizedYear !== undefined && (!Number.isInteger(normalizedYear) || normalizedYear < -5000 || normalizedYear > new Date().getFullYear() + 10)) {
+      setValidationError('Enter a valid publication year.');
+      return;
+    }
+
+    setIsSaving(true);
+    setValidationError('');
+
+    try {
+      await onSave({
+        title: normalizedTitle,
+        author,
+        publicationYear: normalizedYear,
+        country,
+        language,
+        publisher,
+        tags: tags.split(/[,，\n]/).map((tag) => tag.trim()).filter(Boolean),
+        description,
+      });
+      onClose();
+    } catch {
+      setValidationError('Could not save book details.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-stone-950/45 p-4" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !isBusy && onClose()}>
+      <form onSubmit={submit} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-md border border-stone-300 bg-[#f5f1e8] p-5 shadow-2xl md:p-6" role="dialog" aria-modal="true" aria-labelledby="book-details-title">
+        <div className="flex items-start justify-between gap-4 border-b border-stone-300 pb-4">
+          <div>
+            <p className="text-xs font-medium uppercase text-stone-500">Library metadata</p>
+            <h2 id="book-details-title" className="mt-1 text-xl font-semibold text-stone-950">Book details</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={autoDetect}
+              disabled={isBusy}
+              className="flex h-9 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 hover:bg-white disabled:cursor-wait disabled:opacity-50"
+            >
+              {isDetecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              Auto-detect
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isBusy}
+              className="flex h-9 w-9 items-center justify-center rounded-md text-stone-600 hover:bg-stone-200 disabled:opacity-50"
+              title="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <MetadataField label="Title" value={title} onChange={setTitle} />
+          </div>
+          <MetadataField label="Author" value={author} onChange={setAuthor} />
+          <MetadataField label="Publication year" value={year} onChange={setYear} type="number" />
+          <MetadataField label="Country" value={country} onChange={setCountry} />
+          <MetadataField label="Original language" value={language} onChange={setLanguage} />
+          <MetadataField label="Publisher" value={publisher} onChange={setPublisher} />
+          <MetadataField label="Tags" value={tags} onChange={setTags} placeholder="classic, philosophy" />
+          <label className="block md:col-span-2">
+            <span className="text-xs font-medium text-stone-600">Description</span>
+            <textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              className="mt-1 min-h-28 w-full resize-y rounded-md border border-stone-300 bg-[#fffdf8] p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-stone-400"
+            />
+          </label>
+        </div>
+
+        {detectionStatus && <p className="mt-4 text-sm text-emerald-700">{detectionStatus}</p>}
+        {validationError && <p className="mt-4 text-sm text-red-700">{validationError}</p>}
+
+        <div className="mt-6 flex justify-end gap-3 border-t border-stone-300 pt-4">
+          <button type="button" onClick={onClose} disabled={isBusy} className="h-10 rounded-md border border-stone-300 px-4 text-sm font-medium text-stone-700 hover:bg-white disabled:opacity-50">
+            Cancel
+          </button>
+          <button type="submit" disabled={isBusy} className="flex h-10 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-white hover:bg-stone-800 disabled:cursor-wait disabled:opacity-50">
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            Save
+          </button>
+        </div>
+      </form>
+    </div>,
+    document.body,
+  );
+};
 
 interface BookPageProps {
   eyebrow: string;

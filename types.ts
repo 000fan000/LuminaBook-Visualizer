@@ -1,7 +1,16 @@
-export interface UploadedBook {
-  id: string;
+export interface BookMetadata {
   title: string;
   author?: string;
+  publicationYear?: number;
+  country?: string;
+  language?: string;
+  publisher?: string;
+  tags?: string[];
+  description?: string;
+}
+
+export interface UploadedBook extends BookMetadata {
+  id: string;
   fileName: string;
   fileType: 'txt' | 'pdf' | 'epub';
   text: string;

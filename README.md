@@ -76,3 +76,6 @@ For the Electron app, LLM profiles are routed through a preload bridge and persi
 - Kept the existing Vite web app workflow unchanged.
 - Added `dev:mac`, `package:mac`, and `make:mac` npm scripts.
 - Added anchored LLM annotation cards that open on the original book page and highlight their source text on hover.
+- Added editable library metadata for title, author, year, country, language, publisher, tags, and description.
+- Added LLM-assisted metadata auto-detection that fills empty book-detail fields.
+- Added shelf metadata export as structured JSON linked to each original filename.

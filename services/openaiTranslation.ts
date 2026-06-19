@@ -1,4 +1,11 @@
-import { LlmAnnotation, LlmSettings, SourceSegment, TranslationResult } from '../types';
+import {
+  BookMetadata,
+  LlmAnnotation,
+  LlmSettings,
+  SourceSegment,
+  TranslationResult,
+  UploadedBook,
+} from '../types';
 import { saveLlmEvaluationRecord } from './llmEvaluationStorage';
 
 interface ChatCompletionResponse {
@@ -67,11 +74,15 @@ export const normalizeEndpoint = (endpoint: string) => {
   return `${trimmed}/v1/chat/completions`;
 };
 
-const parseJsonContent = (content: string): TranslationResult => {
+const parseJsonObjectContent = <T,>(content: string): T => {
   const fencedMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const jsonText = fencedMatch ? fencedMatch[1] : content;
   const objectMatch = jsonText.match(/\{[\s\S]*\}/);
-  const parsed = JSON.parse((objectMatch ? objectMatch[0] : jsonText).trim()) as TranslationResult;
+  return JSON.parse((objectMatch ? objectMatch[0] : jsonText).trim()) as T;
+};
+
+const parseJsonContent = (content: string): TranslationResult => {
+  const parsed = parseJsonObjectContent<TranslationResult>(content);
   const layout = parsed.layout
     ? {
         header: parsed.layout.header || '',
@@ -114,6 +125,103 @@ const parseJsonContent = (content: string): TranslationResult => {
     keyTerms: Array.isArray(parsed.keyTerms) ? parsed.keyTerms : [],
     reflectionPrompt: parsed.reflectionPrompt || '',
     annotations,
+  };
+};
+
+const optionalMetadataText = (value: unknown) => {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text || undefined;
+};
+
+export const detectBookMetadata = async (
+  book: UploadedBook,
+  settings: LlmSettings,
+): Promise<Partial<BookMetadata>> => {
+  if (!settings.endpoint.trim() || !settings.apiKey.trim() || !settings.model.trim()) {
+    throw new Error('Endpoint, API key, and model are required before metadata detection.');
+  }
+
+  const response = await postChatCompletion(
+    settings,
+    [
+      {
+        role: 'system',
+        content: 'You identify bibliographic metadata from book files. Return only reliable information as JSON and leave uncertain fields empty.',
+      },
+      {
+        role: 'user',
+        content: `Detect bibliographic metadata for this book.
+
+Return JSON with exactly these fields:
+- title: string or empty string
+- author: string or empty string
+- publicationYear: integer or null
+- country: country most associated with the work's original publication or empty string
+- language: original language of the work or empty string
+- publisher: publisher of this edition if clearly present, otherwise empty string
+- tags: array of up to 8 concise subject or genre tags
+- description: factual description in 1 or 2 sentences, or empty string
+
+Rules:
+- Prefer explicit title-page, copyright-page, filename, and table-of-contents evidence.
+- Do not invent a publisher, year, country, or author when evidence is weak.
+- Do not include markdown.
+
+Filename: ${book.fileName}
+Current metadata: ${JSON.stringify({
+          title: book.title,
+          author: book.author || '',
+          publicationYear: book.publicationYear || null,
+          country: book.country || '',
+          language: book.language || '',
+          publisher: book.publisher || '',
+          tags: book.tags || [],
+        })}
+Table of contents: ${(book.toc || []).slice(0, 24).map((entry) => entry.title).join(' | ') || '(none)'}
+
+Opening excerpt:
+<book_excerpt>
+${book.text.slice(0, 6000)}
+</book_excerpt>`,
+      },
+    ],
+    700,
+    'detect book metadata',
+  );
+
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`Metadata detection failed (${response.status}): ${responseText.slice(0, 400)}`);
+  }
+
+  const content = extractResponseContent(responseText);
+
+  if (!content) {
+    throw new Error('The model returned an empty metadata response.');
+  }
+
+  const parsed = parseJsonObjectContent<Record<string, unknown>>(content);
+  const parsedYear =
+    typeof parsed.publicationYear === 'number'
+      ? parsed.publicationYear
+      : typeof parsed.publicationYear === 'string'
+        ? Number.parseInt(parsed.publicationYear, 10)
+        : undefined;
+  const publicationYear = Number.isInteger(parsedYear) ? parsedYear : undefined;
+  const tags = Array.isArray(parsed.tags)
+    ? parsed.tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 8)
+    : [];
+
+  return {
+    title: optionalMetadataText(parsed.title),
+    author: optionalMetadataText(parsed.author),
+    publicationYear,
+    country: optionalMetadataText(parsed.country),
+    language: optionalMetadataText(parsed.language),
+    publisher: optionalMetadataText(parsed.publisher),
+    tags,
+    description: optionalMetadataText(parsed.description),
   };
 };
 
