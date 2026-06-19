@@ -33,6 +33,7 @@ import {
 } from './services/llmEvaluationStorage';
 import { PROVIDER_PRESETS, respondToReaderNote, testLlmSettings, translateSegment } from './services/openaiTranslation';
 import { renderPdfPageToCanvas } from './services/pdfRenderer';
+import { hasDesktopProfileStore, loadDesktopLlmProfiles, saveDesktopLlmProfiles } from './platform';
 import {
   Bookmark,
   Highlight,
@@ -195,6 +196,19 @@ const writeStorage = (key: string, value: unknown) => {
   localStorage.setItem(key, JSON.stringify(value));
 };
 
+const getInitialLlmProfileState = () => {
+  const savedProfiles = readStorage<LlmProfile[]>(STORAGE_KEYS.llmProfiles, []);
+  const initialProfiles = savedProfiles.length ? savedProfiles : [createProfileFromSettings(DEFAULT_SETTINGS)];
+  const savedActiveProfileId = readStorage<string>(STORAGE_KEYS.activeLlmProfileId, initialProfiles[0].id);
+  const activeProfile = initialProfiles.find((profile) => profile.id === savedActiveProfileId) || initialProfiles[0];
+
+  return {
+    profiles: initialProfiles,
+    activeProfileId: activeProfile.id,
+    activeProfile,
+  };
+};
+
 const belongsToBook = <T extends { bookId?: string; bookTitle: string }>(item: T, targetBook: UploadedBook) =>
   item.bookId ? item.bookId === targetBook.id : item.bookTitle === targetBook.title;
 
@@ -286,17 +300,14 @@ const parseImportedProfiles = (text: string) => {
 };
 
 const App: React.FC = () => {
-  const savedProfiles = readStorage<LlmProfile[]>(STORAGE_KEYS.llmProfiles, []);
-  const initialProfiles = savedProfiles.length ? savedProfiles : [createProfileFromSettings(DEFAULT_SETTINGS)];
-  const savedActiveProfileId = readStorage<string>(STORAGE_KEYS.activeLlmProfileId, initialProfiles[0].id);
-  const initialSettingsProfile = initialProfiles.find((profile) => profile.id === savedActiveProfileId) || initialProfiles[0];
+  const initialLlmProfileState = useMemo(getInitialLlmProfileState, []);
   const [view, setView] = useState<'library' | 'reader'>('library');
   const [books, setBooks] = useState<UploadedBook[]>([]);
   const [activeBookId, setActiveBookId] = useState('');
   const [motherLanguage, setMotherLanguage] = useState('English');
-  const [llmProfiles, setLlmProfiles] = useState<LlmProfile[]>(() => initialProfiles);
-  const [activeLlmProfileId, setActiveLlmProfileId] = useState(initialSettingsProfile.id);
-  const [settings, setSettings] = useState<LlmSettings>(() => normalizeLlmSettings(initialSettingsProfile));
+  const [llmProfiles, setLlmProfiles] = useState<LlmProfile[]>(() => initialLlmProfileState.profiles);
+  const [activeLlmProfileId, setActiveLlmProfileId] = useState(initialLlmProfileState.activeProfileId);
+  const [settings, setSettings] = useState<LlmSettings>(() => normalizeLlmSettings(initialLlmProfileState.activeProfile));
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
   const [translatedSegmentsByBook, setTranslatedSegmentsByBook] = useState<Record<string, Record<string, TranslatedSegment>>>({});
   const [rightPaneMode, setRightPaneMode] = useState<RightPaneMode>('translation');
@@ -338,6 +349,8 @@ const App: React.FC = () => {
     readStorage<ReadingProgress[]>(STORAGE_KEYS.progress, []),
   );
   const booksRef = useRef<UploadedBook[]>([]);
+  const hasDesktopProfileStoreRef = useRef(hasDesktopProfileStore());
+  const hasLoadedDesktopProfilesRef = useRef(!hasDesktopProfileStoreRef.current);
 
   const book = books.find((item) => item.id === activeBookId) || null;
   const activeSegment = book?.segments[activeSegmentIndex] || null;
@@ -479,11 +492,15 @@ const App: React.FC = () => {
 
   const exportLlmProfiles = () => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const exportProfiles = llmProfiles.map((profile) => ({
+      ...profile,
+      apiKey: '',
+    }));
 
     downloadJsonFile(`luminabook-model-configs-${timestamp}.json`, {
       exportedAt: new Date().toISOString(),
       activeProfileId: activeLlmProfileId,
-      profiles: llmProfiles,
+      profiles: exportProfiles,
     });
     setStatusMessage(`Downloaded ${llmProfiles.length} model config${llmProfiles.length > 1 ? 's' : ''}.`);
   };
@@ -697,10 +714,73 @@ const App: React.FC = () => {
   }, [customReadingThemes]);
 
   useEffect(() => {
-    writeStorage(STORAGE_KEYS.llmProfiles, llmProfiles);
-  }, [llmProfiles]);
+    if (!hasDesktopProfileStoreRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const restoreDesktopProfiles = async () => {
+      try {
+        const desktopState = await loadDesktopLlmProfiles();
+
+        if (cancelled) {
+          return;
+        }
+
+        if (desktopState?.profiles.length) {
+          const activeProfile =
+            desktopState.profiles.find((profile) => profile.id === desktopState.activeProfileId) ||
+            desktopState.profiles[0];
+
+          setLlmProfiles(desktopState.profiles);
+          setActiveLlmProfileId(activeProfile.id);
+          setSettings(normalizeLlmSettings(activeProfile));
+        } else {
+          await saveDesktopLlmProfiles({
+            activeProfileId: activeLlmProfileId,
+            profiles: llmProfiles,
+          });
+        }
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Could not load desktop model configs.');
+      } finally {
+        if (!cancelled) {
+          hasLoadedDesktopProfilesRef.current = true;
+        }
+      }
+    };
+
+    restoreDesktopProfiles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
+    if (hasDesktopProfileStoreRef.current) {
+      if (!hasLoadedDesktopProfilesRef.current) {
+        return;
+      }
+
+      saveDesktopLlmProfiles({
+        activeProfileId: activeLlmProfileId,
+        profiles: llmProfiles,
+      }).catch((error) => {
+        setErrorMessage(error instanceof Error ? error.message : 'Could not save desktop model configs.');
+      });
+      return;
+    }
+
+    writeStorage(STORAGE_KEYS.llmProfiles, llmProfiles);
+  }, [activeLlmProfileId, llmProfiles]);
+
+  useEffect(() => {
+    if (hasDesktopProfileStoreRef.current) {
+      return;
+    }
+
     writeStorage(STORAGE_KEYS.activeLlmProfileId, activeLlmProfileId);
   }, [activeLlmProfileId]);
 
