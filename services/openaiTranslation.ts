@@ -6,6 +6,7 @@ import {
   TranslationResult,
   UploadedBook,
 } from '../types';
+import { announceQuotaUpdate, getAccountAccessToken } from './account';
 import { saveLlmEvaluationRecord } from './llmEvaluationStorage';
 
 interface ChatCompletionResponse {
@@ -30,6 +31,13 @@ export interface ProviderPreset {
 }
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
+  {
+    id: 'luminabook',
+    label: 'LuminaBook Daily Credits',
+    endpoint: '/api/llm',
+    models: ['daily-reader'],
+    useJsonMode: true,
+  },
   {
     id: 'openai',
     label: 'OpenAI',
@@ -59,6 +67,21 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     useJsonMode: false,
   },
 ];
+
+const isFundedProvider = (settings: LlmSettings) => settings.provider === 'luminabook';
+
+const hasRequiredSettings = (settings: LlmSettings) =>
+  Boolean(settings.endpoint.trim() && settings.model.trim() && (isFundedProvider(settings) || settings.apiKey.trim()));
+
+const getPlatformOperation = (requestName: string) => {
+  if (requestName === 'provider test') return 'test';
+  if (requestName === 'detect book metadata') return 'metadata';
+  if (requestName.startsWith('translate segment')) return 'translate';
+  if (requestName.startsWith('note response')) return 'note';
+  if (requestName.startsWith('reading agent')) return 'chat';
+  if (requestName.startsWith('define selection')) return 'define';
+  return '';
+};
 
 export const normalizeEndpoint = (endpoint: string) => {
   const trimmed = endpoint.trim().replace(/\/$/, '');
@@ -206,7 +229,7 @@ export const detectBookMetadata = async (
   book: UploadedBook,
   settings: LlmSettings,
 ): Promise<Partial<BookMetadata>> => {
-  if (!settings.endpoint.trim() || !settings.apiKey.trim() || !settings.model.trim()) {
+  if (!hasRequiredSettings(settings)) {
     throw new Error('Endpoint, API key, and model are required before metadata detection.');
   }
 
@@ -386,21 +409,36 @@ const postChatCompletion = async (
   maxTokens?: number,
   requestName = 'chat completion',
 ) => {
-  const url = normalizeEndpoint(settings.endpoint);
+  const fundedProvider = isFundedProvider(settings);
+  const url = fundedProvider ? settings.endpoint : normalizeEndpoint(settings.endpoint);
   const logPrefix = `[LuminaBook LLM] ${requestName}`;
   const timeoutMs = getEvaluationTimeoutMs(settings);
   const temperature = getEvaluationTemperature(settings);
 
   const send = async (useJsonMode: boolean, attempt: string) => {
-    const headers = buildHeaders(settings);
-    const requestBody = buildRequestBody(
-      {
-        ...settings,
-        useJsonMode,
-      },
-      messages,
-      maxTokens,
-    );
+    const headers = fundedProvider
+      ? {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${await getAccountAccessToken()}`,
+        }
+      : buildHeaders(settings);
+    const requestBody = fundedProvider
+      ? {
+          requestId: crypto.randomUUID(),
+          operation: getPlatformOperation(requestName),
+          messages,
+          maxTokens,
+          temperature,
+          useJsonMode,
+        }
+      : buildRequestBody(
+          {
+            ...settings,
+            useJsonMode,
+          },
+          messages,
+          maxTokens,
+        );
     const startedAt = Date.now();
     const requestText = JSON.stringify(requestBody);
     const inputText = messages.map((message) => message.content).join('\n\n');
@@ -439,6 +477,10 @@ const postChatCompletion = async (
       window.clearTimeout(timeoutId);
       const responseContent = extractResponseContent(responseText);
       const responseUsage = extractResponseUsage(responseText);
+
+      if (fundedProvider) {
+        announceQuotaUpdate();
+      }
 
       console.info(`${logPrefix} status`, {
         attempt,
@@ -590,7 +632,7 @@ export const translateSegment = async (
     consumedSourceText?: string;
   },
 ): Promise<TranslationResult> => {
-  if (!settings.endpoint.trim() || !settings.apiKey.trim() || !settings.model.trim()) {
+  if (!hasRequiredSettings(settings)) {
     throw new Error('Endpoint, API key, and model are required before translation.');
   }
 
@@ -753,7 +795,7 @@ export const respondToReaderNote = async (
   motherLanguage: string,
   settings: LlmSettings,
 ) => {
-  if (!settings.endpoint.trim() || !settings.apiKey.trim() || !settings.model.trim()) {
+  if (!hasRequiredSettings(settings)) {
     throw new Error('Endpoint, API key, and model are required before note response.');
   }
 
@@ -808,7 +850,7 @@ export const converseWithReadingAgent = async (
   motherLanguage: string,
   settings: LlmSettings,
 ) => {
-  if (!settings.endpoint.trim() || !settings.apiKey.trim() || !settings.model.trim()) {
+  if (!hasRequiredSettings(settings)) {
     throw new Error('Endpoint, API key, and model are required before starting a conversation.');
   }
 
@@ -847,7 +889,7 @@ export const defineSelectedText = async (
   motherLanguage: string,
   settings: LlmSettings,
 ) => {
-  if (!settings.endpoint.trim() || !settings.apiKey.trim() || !settings.model.trim()) {
+  if (!hasRequiredSettings(settings)) {
     throw new Error('Endpoint, API key, and model are required before defining selected text.');
   }
 

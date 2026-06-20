@@ -30,6 +30,7 @@ import {
   X,
 } from 'lucide-react';
 import { TextLayer } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { AccountMenu } from './components/AccountMenu';
 import { parseBookFile } from './services/bookIngestion';
 import {
   deleteBookFromLibrary,
@@ -638,6 +639,7 @@ const App: React.FC = () => {
       ...current,
       provider: preset.id,
       endpoint: preset.endpoint,
+      apiKey: preset.id === 'luminabook' ? '' : current.apiKey,
       model: preset.models[0],
       profileName: `${preset.label} ${preset.models[0]}`,
       useJsonMode: preset.useJsonMode,
@@ -1628,6 +1630,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
         </div>
       </div>
       <div className="flex items-center gap-2">
+        <AccountMenu />
         <button
           onClick={onExportShelfInfo}
           disabled={!books.length}
@@ -1768,6 +1771,7 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
 }) => {
   const { t, i18n } = useTranslation();
   const selectedProvider = PROVIDER_PRESETS.find((provider) => provider.id === settings.provider) || PROVIDER_PRESETS[0];
+  const usesDailyCredits = settings.provider === 'luminabook';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/35 px-4 py-6 backdrop-blur-sm">
@@ -1950,10 +1954,18 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
                   </select>
                 </label>
               </div>
-              <SettingsField label="Endpoint" value={settings.endpoint} onChange={(value) => onSettingsChange('endpoint', value)} />
-              <SettingsField label="API Key" value={settings.apiKey} onChange={(value) => onSettingsChange('apiKey', value)} type="password" />
-              <p className="mt-1 text-xs text-stone-500">Saved key: {maskApiKey(settings.apiKey)}</p>
-              <SettingsField label="Model" value={settings.model} onChange={(value) => onSettingsChange('model', value)} />
+              {usesDailyCredits ? (
+                <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                  Sign in from the library header to use the daily allowance. LuminaBook chooses the funded endpoint and model; no API key is stored in the browser.
+                </div>
+              ) : (
+                <>
+                  <SettingsField label="Endpoint" value={settings.endpoint} onChange={(value) => onSettingsChange('endpoint', value)} />
+                  <SettingsField label="API Key" value={settings.apiKey} onChange={(value) => onSettingsChange('apiKey', value)} type="password" />
+                  <p className="mt-1 text-xs text-stone-500">Saved key: {maskApiKey(settings.apiKey)}</p>
+                  <SettingsField label="Model" value={settings.model} onChange={(value) => onSettingsChange('model', value)} />
+                </>
+              )}
               <div className="grid gap-3 md:grid-cols-2">
                 <NumberSettingsField
                   label="Temperature"

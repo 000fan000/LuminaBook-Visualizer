@@ -63,6 +63,12 @@ The API key is entered in the app because the prototype supports user-configured
 
 For the Electron app, LLM profiles are routed through a preload bridge and persisted by the main process instead of writing profile state directly to renderer `localStorage`.
 
+## Accounts and Daily Credits
+
+The web app includes optional Supabase email accounts and a quota-protected Cloudflare Pages Function for platform-funded reading credits. Anonymous users can continue using their own OpenAI-compatible provider without an account, and books remain stored locally.
+
+See [ACCOUNT_SYSTEM.md](./ACCOUNT_SYSTEM.md) for the database migration, environment variables, Cloudflare secrets, local development, and verification workflow. See [DEPLOY.md](./DEPLOY.md) for Cloudflare Pages deployment.
+
 ## Update Log
 
 ### 2026-06-19

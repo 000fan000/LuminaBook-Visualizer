@@ -60,6 +60,32 @@ After setup:
 - Other enabled branches create preview deployments.
 - Pull requests can receive deployment status checks and preview URLs.
 
+### Account Environment
+
+To enable email accounts and daily funded credits, configure the public build variables:
+
+```text
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
+```
+
+Configure these values as encrypted Pages Function variables rather than public build variables:
+
+```text
+SUPABASE_URL
+SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+PLATFORM_LLM_ENDPOINT
+PLATFORM_LLM_API_KEY
+PLATFORM_LLM_MODEL
+PLATFORM_LLM_INPUT_USD_PER_MILLION
+PLATFORM_LLM_OUTPUT_USD_PER_MILLION
+```
+
+The pricing variables are optional and power estimated cost reporting in the admin dashboard.
+
+Apply the Supabase migration and follow the complete setup in [ACCOUNT_SYSTEM.md](./ACCOUNT_SYSTEM.md).
+
 ## Option 2: Direct Upload with Wrangler
 
 Use Direct Upload when deployment should be controlled locally or by an external CI system.
