@@ -800,3 +800,42 @@ ${note}`,
 
   return content;
 };
+
+export const converseWithReadingAgent = async (
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  segment: SourceSegment,
+  translatedText: string,
+  motherLanguage: string,
+  settings: LlmSettings,
+) => {
+  if (!settings.endpoint.trim() || !settings.apiKey.trim() || !settings.model.trim()) {
+    throw new Error('Endpoint, API key, and model are required before starting a conversation.');
+  }
+
+  const response = await postChatCompletion(
+    { ...settings, useJsonMode: false },
+    [
+      {
+        role: 'system',
+        content: `You are Genie, LuminaBook's thoughtful reading companion. Help the reader stay close to the text. Be concise, curious, and specific. Explain language or context when useful, preserve ambiguity, and ask at most one productive follow-up question. Reply in the reader's mother language unless they ask otherwise.\n\nReader mother language: ${motherLanguage}\n\nCurrent original passage:\n${segment.sourceText}\n\nCurrent translation:\n${translatedText || '(not translated yet)'}`,
+      },
+      ...messages.slice(-10),
+    ],
+    900,
+    `reading agent segment ${segment.index + 1}`,
+  );
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Reading companion failed (${response.status}): ${detail.slice(0, 500)}`);
+  }
+
+  const data = (await response.json()) as ChatCompletionResponse;
+  const content = data.choices?.[0]?.message?.content?.trim();
+
+  if (!content) {
+    throw new Error('Reading companion did not include text content.');
+  }
+
+  return content;
+};

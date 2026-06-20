@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
   ArrowLeft,
@@ -17,10 +18,12 @@ import {
   ListTree,
   Library,
   Loader2,
+  MessageCircle,
   Pencil,
   Play,
   Plus,
   Settings2,
+  Send,
   Sparkles,
   Upload,
   Trash2,
@@ -40,6 +43,7 @@ import {
   loadLlmEvaluationRecords,
 } from './services/llmEvaluationStorage';
 import {
+  converseWithReadingAgent,
   detectBookMetadata,
   PROVIDER_PRESETS,
   respondToReaderNote,
@@ -48,6 +52,7 @@ import {
 } from './services/openaiTranslation';
 import { renderPdfPageToCanvas } from './services/pdfRenderer';
 import { hasDesktopProfileStore, loadDesktopLlmProfiles, saveDesktopLlmProfiles } from './platform';
+import { DISPLAY_LANGUAGES } from './i18n';
 import {
   Bookmark,
   BookMetadata,
@@ -141,7 +146,12 @@ const STORAGE_KEYS = {
 
 type TextAlignment = 'left' | 'center' | 'justify';
 type TextFont = 'serif' | 'sans' | 'mono';
-type RightPaneMode = 'translation' | 'notes' | 'guide';
+type RightPaneMode = 'translation' | 'guide';
+
+interface ReadingAgentMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
 
 interface ReadingTheme {
   id: string;
@@ -370,6 +380,8 @@ const App: React.FC = () => {
   const [isParsing, setIsParsing] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isRespondingToNote, setIsRespondingToNote] = useState(false);
+  const [isReadingAgentResponding, setIsReadingAgentResponding] = useState(false);
+  const [readingAgentMessages, setReadingAgentMessages] = useState<ReadingAgentMessage[]>([]);
   const [llmRequestStartedAt, setLlmRequestStartedAt] = useState<number | null>(null);
   const [llmElapsedSeconds, setLlmElapsedSeconds] = useState(0);
   const [isLibraryLoading, setIsLibraryLoading] = useState(true);
@@ -1363,6 +1375,33 @@ const App: React.FC = () => {
     }
   };
 
+  const sendReadingAgentMessage = async (content: string) => {
+    if (!activeSegment || !content.trim()) return;
+
+    const userMessage: ReadingAgentMessage = { role: 'user', content: content.trim() };
+    const nextMessages = [...readingAgentMessages, userMessage];
+    setReadingAgentMessages(nextMessages);
+    persistActiveLlmProfile();
+    setIsReadingAgentResponding(true);
+    setErrorMessage('');
+
+    try {
+      const response = await converseWithReadingAgent(
+        nextMessages,
+        activeSegment,
+        activeTranslation?.translatedText || '',
+        motherLanguage,
+        settings,
+      );
+      setReadingAgentMessages((current) => [...current, { role: 'assistant', content: response }]);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Reading companion failed.');
+    } finally {
+      setIsReadingAgentResponding(false);
+      refreshEvaluationRecords();
+    }
+  };
+
   if (view === 'reader' && book && activeSegment) {
     return (
       <ReaderView
@@ -1411,6 +1450,9 @@ const App: React.FC = () => {
         onNoteChange={updateActiveNote}
         onRespondToNote={respondToNote}
         isRespondingToNote={isRespondingToNote}
+        readingAgentMessages={readingAgentMessages}
+        isReadingAgentResponding={isReadingAgentResponding}
+        onSendReadingAgentMessage={sendReadingAgentMessage}
       />
     );
   }
@@ -1536,7 +1578,10 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   onTestProvider,
   onExportEvaluationRecords,
   onClearEvaluationRecords,
-}) => (
+}) => {
+  const { t } = useTranslation();
+
+  return (
   <div className="min-h-screen bg-[#f5f1e8] text-stone-950">
     <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-6">
       <div className="flex items-center gap-3">
@@ -1545,7 +1590,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
         </div>
         <div>
           <h1 className="text-xl font-semibold tracking-normal">LuminaBook</h1>
-          <p className="text-sm text-stone-600">Your bilingual great-books shelf</p>
+          <p className="text-sm text-stone-600">{t('library.subtitle')}</p>
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -1553,17 +1598,17 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           onClick={onExportShelfInfo}
           disabled={!books.length}
           className="flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 shadow-sm hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
-          title="Download shelf information as JSON"
+          title={t('library.shelfJsonTitle')}
         >
           <Download className="h-4 w-4" />
-          <span className="hidden sm:inline">Shelf JSON</span>
+          <span className="hidden sm:inline">{t('library.shelfJson')}</span>
         </button>
         <button
           onClick={onOpenConfig}
           className="flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 shadow-sm hover:bg-white"
         >
           <Settings2 className="h-4 w-4" />
-          Config
+          {t('common.config')}
         </button>
       </div>
     </header>
@@ -1571,10 +1616,10 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     <main className="mx-auto max-w-7xl px-5 pb-12 pt-6">
       <section>
         <div className="max-w-3xl">
-          <p className="text-sm font-medium uppercase tracking-[0.18em] text-stone-500">Library</p>
-          <h2 className="mt-3 text-4xl font-semibold leading-tight tracking-normal md:text-6xl">Choose a book from the shelf.</h2>
+          <p className="text-sm font-medium uppercase tracking-[0.18em] text-stone-500">{t('library.eyebrow')}</p>
+          <h2 className="mt-3 text-4xl font-semibold leading-tight tracking-normal md:text-6xl">{t('library.title')}</h2>
           <p className="mt-5 max-w-2xl text-lg leading-8 text-stone-600">
-            Upload a source book, keep the original page visible, and generate a facing translation when you read.
+            {t('library.description')}
           </p>
         </div>
 
@@ -1601,7 +1646,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
               );
             })}
           </div>
-          {isLibraryLoading && <p className="mt-4 text-sm text-stone-600">Loading saved shelf...</p>}
+          {isLibraryLoading && <p className="mt-4 text-sm text-stone-600">{t('library.loading')}</p>}
         </div>
 
         <StatusMessage statusMessage={statusMessage} errorMessage={errorMessage} />
@@ -1635,7 +1680,8 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       />
     )}
   </div>
-);
+  );
+};
 
 interface ConfigDialogProps {
   motherLanguage: string;
@@ -1686,6 +1732,7 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
   onExportEvaluationRecords,
   onClearEvaluationRecords,
 }) => {
+  const { t, i18n } = useTranslation();
   const selectedProvider = PROVIDER_PRESETS.find((provider) => provider.id === settings.provider) || PROVIDER_PRESETS[0];
 
   return (
@@ -1696,8 +1743,8 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
             <Settings2 className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-semibold">Reading & Translation Config</h2>
-            <p className="text-sm text-stone-600">Choose provider, model, endpoint, and prompt.</p>
+            <h2 className="text-lg font-semibold">{t('config.title')}</h2>
+            <p className="text-sm text-stone-600">{t('config.description')}</p>
           </div>
           <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-stone-100">
             <X className="h-5 w-5" />
@@ -1708,7 +1755,7 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
           <section className="space-y-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
               <Languages className="h-4 w-4" />
-              Mother Language
+              {t('config.motherLanguage')}
             </div>
             <select
               value={motherLanguage}
@@ -1725,14 +1772,32 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
               value={motherLanguage}
               onChange={(event) => onMotherLanguageChange(event.target.value)}
               className="h-10 w-full rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
-              placeholder="Or type another language"
+              placeholder={t('config.otherLanguage')}
             />
+            <p className="text-xs leading-5 text-stone-500">{t('config.motherLanguageHint')}</p>
+            <div className="border-t border-stone-200 pt-3">
+              <label className="flex items-center gap-2 text-sm font-semibold text-stone-800" htmlFor="display-language">
+                <Languages className="h-4 w-4" />
+                {t('config.displayLanguage')}
+              </label>
+              <select
+                id="display-language"
+                value={i18n.resolvedLanguage || i18n.language}
+                onChange={(event) => void i18n.changeLanguage(event.target.value)}
+                className="mt-3 h-10 w-full rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+              >
+                {DISPLAY_LANGUAGES.map((language) => (
+                  <option key={language.code} value={language.code}>{language.label}</option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs leading-5 text-stone-500">{t('config.displayLanguageHint')}</p>
+            </div>
           </section>
 
           <section className="space-y-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
               <Sparkles className="h-4 w-4" />
-              Active Model
+              {t('config.activeModel')}
             </div>
             <select
               value={activeLlmProfileId}
@@ -2015,6 +2080,9 @@ interface ReaderViewProps {
   onNoteChange: (body: string) => void;
   onRespondToNote: () => void;
   isRespondingToNote: boolean;
+  readingAgentMessages: ReadingAgentMessage[];
+  isReadingAgentResponding: boolean;
+  onSendReadingAgentMessage: (content: string) => void;
 }
 
 function getSourcePageLabel(segment: UploadedBook['segments'][number]) {
@@ -2075,8 +2143,13 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   onNoteChange,
   onRespondToNote,
   isRespondingToNote,
+  readingAgentMessages,
+  isReadingAgentResponding,
+  onSendReadingAgentMessage,
 }) => {
+  const { t } = useTranslation();
   const [isTocOpen, setIsTocOpen] = useState(false);
+  const [isAgentOpen, setIsAgentOpen] = useState(false);
   const tocEntries = book.toc || [];
   const annotationCards = useMemo(
     () => buildAnnotationCards(activeTranslation, activeSegment.sourceText),
@@ -2089,7 +2162,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 md:px-6">
         <button onClick={onBack} className="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-stone-700 hover:bg-stone-200/60">
           <ArrowLeft className="h-4 w-4" />
-          Library
+          {t('reader.back')}
         </button>
         <div className="relative min-w-0 px-4 text-center">
           <button
@@ -2176,7 +2249,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             className="flex h-9 items-center gap-2 rounded-md bg-stone-950 px-3 text-sm font-medium text-[#fffdf8] hover:bg-stone-800 disabled:cursor-wait disabled:opacity-50"
           >
             {isTranslating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {isTranslating ? `Translating ${llmElapsedSeconds}s` : 'Translate'}
+            {isTranslating ? t('reader.translating', { seconds: llmElapsedSeconds }) : t('reader.translate')}
           </button>
         </div>
       </div>
@@ -2186,7 +2259,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
       <div className="mx-auto max-w-7xl">
         <div className="grid min-h-[calc(100vh-150px)] gap-4 lg:grid-cols-2">
           <BookPage
-            eyebrow="Original"
+            eyebrow={t('reader.original')}
             title={activeSegment.sourceLanguage}
             body={activeSegment.sourceText}
             footnotes={activeSegment.footnotes}
@@ -2242,7 +2315,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             onClick={onPrevious}
             disabled={activeSegmentIndex === 0}
             className="flex h-9 w-9 items-center justify-center rounded-md border border-stone-300 bg-[#fffdf8] text-stone-700 disabled:cursor-not-allowed disabled:opacity-40"
-            title="Previous page"
+            title={t('reader.previous')}
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -2250,7 +2323,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             onClick={onNext}
             disabled={activeSegmentIndex === book.segments.length - 1}
             className="flex h-9 w-9 items-center justify-center rounded-md border border-stone-300 bg-[#fffdf8] text-stone-700 disabled:cursor-not-allowed disabled:opacity-40"
-            title="Next page"
+            title={t('reader.next')}
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -2272,13 +2345,21 @@ const ReaderView: React.FC<ReaderViewProps> = ({
           className="flex h-9 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 hover:bg-white disabled:cursor-wait disabled:opacity-50"
         >
           {isTranslating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          {isTranslating ? `${llmElapsedSeconds}s` : 'Translate next 3'}
+          {isTranslating ? `${llmElapsedSeconds}s` : t('reader.translateNext')}
         </button>
       </div>
       <div className="mx-auto mt-2 max-w-7xl">
         <StatusMessage statusMessage={statusMessage} errorMessage={errorMessage} compact />
       </div>
     </footer>
+    <ReadingAgentPanel
+      isOpen={isAgentOpen}
+      onOpenChange={setIsAgentOpen}
+      messages={readingAgentMessages}
+      isResponding={isReadingAgentResponding}
+      onSend={onSendReadingAgentMessage}
+      passageLabel={getSourcePageLabel(activeSegment)}
+    />
   </div>
   );
 };
@@ -2915,6 +2996,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   onRespondToNote,
   isRespondingToNote,
 }) => {
+  const { t } = useTranslation();
   const [isFormatOpen, setIsFormatOpen] = useState(false);
   const [showHighlights, setShowHighlights] = useState(true);
   const [showKnowledgeCards, setShowKnowledgeCards] = useState(true);
@@ -2951,21 +3033,19 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
     <div className="mb-6 flex items-center justify-between gap-3 border-b border-stone-200 pb-4">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
-          {mode === 'translation' ? `Translation · ${motherLanguage}` : mode === 'notes' ? 'Notes' : 'GUIDE'}
+          {mode === 'translation' ? t('reader.translation', { language: motherLanguage }) : t('reader.guide')}
         </p>
         <h2 className="mt-1 text-sm font-medium text-stone-700">
           {mode === 'translation'
             ? activeTranslation
-              ? 'Generated translation'
-              : 'Waiting for translation'
-            : mode === 'notes'
-              ? 'Reader notebook'
-              : 'Whole-page reading perspective'}
+              ? t('reader.generatedTranslation')
+              : t('reader.waitingTranslation')
+            : t('reader.guideDescription')}
         </h2>
       </div>
       <div className="flex items-center gap-2">
         <div className="flex rounded-md border border-stone-300 bg-[#f7f3ea] p-1">
-          {(['translation', 'notes', 'guide'] as const).map((item) => (
+          {(['translation', 'guide'] as const).map((item) => (
             <button
               key={item}
               onClick={() => onModeChange(item)}
@@ -2973,7 +3053,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
                 mode === item ? 'bg-stone-950 text-white' : 'text-stone-600 hover:bg-stone-200'
               }`}
             >
-              {item === 'guide' ? 'GUIDE' : item}
+              {item === 'guide' ? t('reader.guide') : t('reader.translationTab')}
             </button>
           ))}
         </div>
@@ -3011,7 +3091,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
     {mode === 'translation' ? (
       <>
         <FormattedReadingText
-          text={activeTranslation?.translatedText || 'Use Translate to create the facing page for this section.'}
+          text={activeTranslation?.translatedText || t('reader.useTranslate')}
           layout={activeTranslation?.layout}
           muted={!activeTranslation}
           theme={readingTheme}
@@ -3031,25 +3111,6 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
           />
         )}
       </>
-    ) : mode === 'notes' ? (
-      <div className="flex flex-1 flex-col">
-        <textarea
-          value={note?.body || ''}
-          onChange={(event) => onNoteChange(event.target.value)}
-          className="min-h-72 flex-1 resize-none rounded-sm border border-stone-300 bg-[#fbf8f1] p-4 text-base leading-7 outline-none focus:ring-2 focus:ring-stone-400"
-          placeholder="Write a note, question, connection, or interpretation..."
-        />
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <button
-            onClick={onRespondToNote}
-            disabled={isRespondingToNote}
-            className="flex h-10 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-[#fffdf8] hover:bg-stone-800 disabled:cursor-wait disabled:opacity-50"
-          >
-            {isRespondingToNote ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            LLM Respond
-          </button>
-        </div>
-      </div>
     ) : (
       <GuideView
         activeTranslation={activeTranslation}
@@ -3063,6 +3124,171 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
       />
     )}
     </article>
+  );
+};
+
+interface ReadingAgentPanelProps {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  messages: ReadingAgentMessage[];
+  isResponding: boolean;
+  onSend: (content: string) => void;
+  passageLabel: string;
+}
+
+const ReadingAgentPanel: React.FC<ReadingAgentPanelProps> = ({
+  isOpen,
+  onOpenChange,
+  messages,
+  isResponding,
+  onSend,
+  passageLabel,
+}) => {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState('');
+  const endRef = useRef<HTMLDivElement>(null);
+  const starters = [t('genie.starterNotice'), t('genie.starterPhrase'), t('genie.starterConnection')];
+
+  useEffect(() => {
+    if (isOpen) endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [isOpen, messages, isResponding]);
+
+  const send = (content = draft) => {
+    if (!content.trim() || isResponding) return;
+    onSend(content.trim());
+    setDraft('');
+  };
+
+  return (
+    <>
+      {isOpen && (
+        <button
+          type="button"
+          aria-label={t('genie.close')}
+          className="fixed inset-0 z-30 bg-stone-950/20 backdrop-blur-[1px]"
+          onClick={() => onOpenChange(false)}
+        />
+      )}
+
+      <aside
+        aria-label={t('genie.name')}
+        className={`fixed inset-y-0 right-0 z-40 flex w-full max-w-[420px] flex-col border-l border-stone-300 bg-[#fffdf8] shadow-[-24px_0_70px_rgba(68,54,34,0.2)] transition-transform duration-300 ${
+          isOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        <div className="border-b border-stone-200 bg-[#f2eadc] px-5 pb-4 pt-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex gap-3">
+              <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-[45%_55%_50%_50%] bg-stone-950 text-amber-200 shadow-md">
+                <Sparkles className="h-5 w-5" />
+                <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-[#f2eadc]" />
+              </div>
+              <div>
+                <p className="font-serif text-lg font-semibold text-stone-900">{t('genie.name')}</p>
+                <p className="text-xs text-stone-500">{t('genie.companion', { passage: passageLabel })}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-stone-500 hover:bg-stone-200"
+              title={t('genie.close')}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-5">
+          {!messages.length ? (
+            <div className="flex min-h-full flex-col justify-center">
+              <p className="font-serif text-2xl leading-8 text-stone-800">{t('genie.question')}</p>
+              <p className="mt-2 text-sm leading-6 text-stone-500">
+                {t('genie.description')}
+              </p>
+              <div className="mt-6 grid gap-2">
+                {starters.map((starter) => (
+                  <button
+                    key={starter}
+                    type="button"
+                    onClick={() => send(starter)}
+                    className="rounded-lg border border-stone-300 bg-white px-4 py-3 text-left text-sm text-stone-700 transition hover:-translate-y-0.5 hover:border-stone-500 hover:shadow-sm"
+                  >
+                    {starter}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {messages.map((message, index) => (
+                <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`max-w-[88%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 ${
+                      message.role === 'user'
+                        ? 'rounded-br-sm bg-stone-900 text-[#fffdf8]'
+                        : 'rounded-bl-sm border border-stone-200 bg-[#f2eadc] text-stone-800'
+                    }`}
+                  >
+                    {message.content}
+                  </div>
+                </div>
+              ))}
+              {isResponding && (
+                <div className="flex items-center gap-2 text-xs text-stone-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {t('genie.thinking')}
+                </div>
+              )}
+              <div ref={endRef} />
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-stone-200 bg-white p-4">
+          <div className="flex items-end gap-2 rounded-xl border border-stone-300 bg-[#fffdf8] p-2 focus-within:border-stone-500 focus-within:ring-2 focus-within:ring-stone-200">
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  send();
+                }
+              }}
+              rows={2}
+              placeholder={t('genie.placeholder')}
+              className="max-h-32 min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-5 outline-none placeholder:text-stone-400"
+            />
+            <button
+              type="button"
+              onClick={() => send()}
+              disabled={!draft.trim() || isResponding}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-stone-950 text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-35"
+              title={t('genie.send')}
+            >
+              {isResponding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            </button>
+          </div>
+          <p className="mt-2 text-center text-[10px] text-stone-400">{t('genie.inputHint')}</p>
+        </div>
+      </aside>
+
+      {!isOpen && (
+        <button
+          type="button"
+          onClick={() => onOpenChange(true)}
+          className="group fixed bottom-20 right-5 z-30 flex items-center gap-2 rounded-full border border-stone-700 bg-stone-950 py-2.5 pl-3 pr-4 text-[#fffdf8] shadow-[0_12px_35px_rgba(28,25,23,0.3)] transition hover:-translate-y-1 hover:bg-stone-800 md:bottom-6 md:right-7"
+          title={t('genie.call')}
+        >
+          <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-amber-200 text-stone-950">
+            <MessageCircle className="h-4 w-4" />
+            <Sparkles className="absolute -right-1 -top-1 h-3 w-3 text-amber-300 drop-shadow-[0_0_3px_rgba(253,230,138,0.9)]" />
+          </span>
+          <span className="text-sm font-medium">{t('genie.ask')}</span>
+        </button>
+      )}
+    </>
   );
 };
 

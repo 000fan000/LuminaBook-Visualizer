@@ -14,11 +14,13 @@
   },
   "dependencies": {
     "framer-motion": "^12.23.26",
+    "i18next": "^26.3.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.562.0",
     "pdfjs-dist": "^6.0.227",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "react-i18next": "^17.0.8"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
