@@ -105,6 +105,8 @@ const normalizeLlmSettings = (settings: LlmSettings): LlmSettings => ({
       : DEFAULT_SETTINGS.requestTimeoutMs,
 });
 
+const getSelectedReaderText = () => window.getSelection()?.toString().replace(/\s+\n/g, '\n').trim() || '';
+
 const createProfileFromSettings = (settings: LlmSettings, name?: string): LlmProfile => {
   const now = new Date().toISOString();
   const normalized = normalizeLlmSettings(settings);
@@ -263,8 +265,16 @@ const getProfileUsageSummary = (profile: LlmProfile, records: LlmEvaluationRecor
 };
 
 const CONTEXT_WINDOW_CHARS = 900;
+const CONTEXT_OPENING_CHARS = 320;
 const getTrailingContext = (text: string) => text.slice(Math.max(0, text.length - CONTEXT_WINDOW_CHARS));
 const getLeadingContext = (text: string) => text.slice(0, CONTEXT_WINDOW_CHARS);
+const getPreviousPageContext = (text: string) => {
+  if (text.length <= CONTEXT_WINDOW_CHARS) {
+    return text;
+  }
+
+  return `[page opening for header comparison]\n${text.slice(0, CONTEXT_OPENING_CHARS)}\n\n[page ending for sentence continuity]\n${getTrailingContext(text)}`;
+};
 
 const downloadJsonFile = (fileName: string, data: unknown) => {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
@@ -1040,7 +1050,7 @@ const App: React.FC = () => {
 
     return {
       previousLabel: previous ? getSourcePageLabel(previous) : '',
-      previousText: previous ? getTrailingContext(previous.sourceText) : '',
+      previousText: previous ? getPreviousPageContext(previous.sourceText) : '',
       nextLabel: next ? getSourcePageLabel(next) : '',
       nextText: next ? getLeadingContext(next.sourceText) : '',
     };
@@ -1184,8 +1194,6 @@ const App: React.FC = () => {
     });
   };
 
-  const getSelectedReaderText = () => window.getSelection()?.toString().replace(/\s+\n/g, '\n').trim() || '';
-
   const addHighlight = (pageSide: Highlight['pageSide']) => {
     if (!book || !activeSegment) {
       return;
@@ -1242,6 +1250,16 @@ const App: React.FC = () => {
     ]);
     window.getSelection()?.removeAllRanges();
     setStatusMessage('Knowledge card saved.');
+  };
+
+  const deleteHighlight = (highlightId: string) => {
+    setHighlights((current) => current.filter((highlight) => highlight.id !== highlightId));
+    setStatusMessage('Highlight deleted.');
+  };
+
+  const deleteKnowledgeCard = (cardId: string) => {
+    setKnowledgeCards((current) => current.filter((card) => card.id !== cardId));
+    setStatusMessage('Knowledge card deleted.');
   };
 
   const goToBookmark = (bookmark: Bookmark) => {
@@ -1360,6 +1378,8 @@ const App: React.FC = () => {
         onToggleBookmark={toggleBookmark}
         onAddHighlight={addHighlight}
         onCreateKnowledgeCard={createKnowledgeCard}
+        onDeleteHighlight={deleteHighlight}
+        onDeleteKnowledgeCard={deleteKnowledgeCard}
         rightPaneMode={rightPaneMode}
         onRightPaneModeChange={setRightPaneMode}
         hoveredNoteSourceText={hoveredNoteSourceText}
@@ -1962,6 +1982,8 @@ interface ReaderViewProps {
   onToggleBookmark: () => void;
   onAddHighlight: (pageSide: Highlight['pageSide']) => void;
   onCreateKnowledgeCard: (pageSide: Highlight['pageSide']) => void;
+  onDeleteHighlight: (highlightId: string) => void;
+  onDeleteKnowledgeCard: (cardId: string) => void;
   rightPaneMode: RightPaneMode;
   onRightPaneModeChange: (mode: RightPaneMode) => void;
   hoveredNoteSourceText: string;
@@ -2020,6 +2042,8 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   onToggleBookmark,
   onAddHighlight,
   onCreateKnowledgeCard,
+  onDeleteHighlight,
+  onDeleteKnowledgeCard,
   rightPaneMode,
   onRightPaneModeChange,
   hoveredNoteSourceText,
@@ -2155,6 +2179,8 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             pdfPage={activeSegment.firstPage}
             readingTheme={book.fileType === 'pdf' ? undefined : sourceReadingTheme}
             readingThemes={readingThemes}
+            highlights={highlights.filter((highlight) => highlight.pageSide === 'original')}
+            knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'original')}
             annotations={annotationCards}
             hoverHighlightText={hoveredNoteSourceText}
             onAddHighlight={() => onAddHighlight('original')}
@@ -2182,6 +2208,8 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             onSaveTheme={onSaveTranslationTheme}
             onAddHighlight={() => onAddHighlight('translation')}
             onCreateKnowledgeCard={() => onCreateKnowledgeCard('translation')}
+            onDeleteHighlight={onDeleteHighlight}
+            onDeleteKnowledgeCard={onDeleteKnowledgeCard}
             onNoteChange={onNoteChange}
             onRespondToNote={onRespondToNote}
             isRespondingToNote={isRespondingToNote}
@@ -2585,6 +2613,8 @@ interface BookPageProps {
   pdfPage?: number;
   readingTheme?: ReadingTheme;
   readingThemes: ReadingTheme[];
+  highlights: Highlight[];
+  knowledgeCards: KnowledgeCard[];
   annotations: AnnotationCard[];
   hoverHighlightText?: string;
   onAddHighlight: () => void;
@@ -2598,6 +2628,22 @@ interface BookPageProps {
 interface AnnotationCard extends LlmAnnotation {
   id: string;
 }
+
+interface ReaderMark {
+  id: string;
+  text: string;
+  kind: 'highlight' | 'knowledge';
+}
+
+const buildReaderMarks = (highlights: Highlight[], knowledgeCards: KnowledgeCard[]): ReaderMark[] => [
+  ...highlights.map((highlight) => ({ id: highlight.id, text: highlight.text, kind: 'highlight' as const })),
+  ...knowledgeCards.map((card) => ({ id: card.id, text: card.excerpt, kind: 'knowledge' as const })),
+];
+
+const getReaderMarkPhrases = (mark: ReaderMark) =>
+  Array.from(new Set([mark.text.trim(), ...mark.text.split(/\r?\n/).map((line) => line.trim())]))
+    .filter((phrase) => phrase.length >= 2)
+    .sort((a, b) => b.length - a.length);
 
 const ANNOTATION_KIND_LABELS: Record<LlmAnnotation['kind'], string> = {
   term: 'Key term',
@@ -2653,6 +2699,8 @@ const BookPage: React.FC<BookPageProps> = ({
   pdfPage,
   readingTheme,
   readingThemes,
+  highlights,
+  knowledgeCards,
   annotations,
   hoverHighlightText = '',
   onAddHighlight,
@@ -2663,7 +2711,29 @@ const BookPage: React.FC<BookPageProps> = ({
   muted,
 }) => {
   const [isFormatOpen, setIsFormatOpen] = useState(false);
+  const [showHighlights, setShowHighlights] = useState(true);
+  const [showKnowledgeCards, setShowKnowledgeCards] = useState(true);
   const canFormatText = Boolean(readingTheme && !pdfUrl);
+  const visibleMarks = buildReaderMarks(
+    showHighlights ? highlights : [],
+    showKnowledgeCards ? knowledgeCards : [],
+  );
+  const handleHighlightClick = () => {
+    if (getSelectedReaderText()) {
+      onAddHighlight();
+      setShowHighlights(true);
+      return;
+    }
+    setShowHighlights((current) => !current);
+  };
+  const handleKnowledgeCardClick = () => {
+    if (getSelectedReaderText()) {
+      onCreateKnowledgeCard();
+      setShowKnowledgeCards(true);
+      return;
+    }
+    setShowKnowledgeCards((current) => !current);
+  };
   const sectionStyle = readingTheme
     ? {
         color: getSubduedTextColor(readingTheme),
@@ -2687,16 +2757,18 @@ const BookPage: React.FC<BookPageProps> = ({
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2">
         <button
-          onClick={onAddHighlight}
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
-          title="Highlight selected text"
+          onClick={handleHighlightClick}
+          className={`flex h-8 w-8 items-center justify-center rounded-md border ${showHighlights ? 'border-amber-400 bg-amber-100 text-amber-800' : 'border-stone-300 text-stone-400 hover:bg-stone-100'}`}
+          title={`${showHighlights ? 'Hide' : 'Show'} highlights; select text first to add one`}
+          aria-pressed={showHighlights}
         >
           <Highlighter className="h-4 w-4" />
         </button>
         <button
-          onClick={onCreateKnowledgeCard}
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
-          title="Create knowledge card from selected text"
+          onClick={handleKnowledgeCardClick}
+          className={`flex h-8 w-8 items-center justify-center rounded-md border ${showKnowledgeCards ? 'border-sky-400 bg-sky-100 text-sky-800' : 'border-stone-300 text-stone-400 hover:bg-stone-100'}`}
+          title={`${showKnowledgeCards ? 'Hide' : 'Show'} knowledge cards; select text first to add one`}
+          aria-pressed={showKnowledgeCards}
         >
           <FileText className="h-4 w-4" />
         </button>
@@ -2725,6 +2797,7 @@ const BookPage: React.FC<BookPageProps> = ({
           pageNumber={pdfPage || 1}
           highlightText={hoverHighlightText}
           annotations={annotations}
+          marks={visibleMarks}
         />
       </div>
     ) : (
@@ -2734,6 +2807,7 @@ const BookPage: React.FC<BookPageProps> = ({
           muted={muted}
           hoverHighlightText={hoverHighlightText}
           annotations={annotations}
+          marks={visibleMarks}
           theme={readingTheme}
         />
         {isFormatOpen && readingTheme && (
@@ -2792,6 +2866,8 @@ interface RightReaderPaneProps {
   onSaveTheme: () => void;
   onAddHighlight: () => void;
   onCreateKnowledgeCard: () => void;
+  onDeleteHighlight: (highlightId: string) => void;
+  onDeleteKnowledgeCard: (cardId: string) => void;
   onNoteChange: (body: string) => void;
   onRespondToNote: () => void;
   isRespondingToNote: boolean;
@@ -2816,15 +2892,39 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   onSaveTheme,
   onAddHighlight,
   onCreateKnowledgeCard,
+  onDeleteHighlight,
+  onDeleteKnowledgeCard,
   onNoteChange,
   onRespondToNote,
   isRespondingToNote,
 }) => {
   const [isFormatOpen, setIsFormatOpen] = useState(false);
+  const [showHighlights, setShowHighlights] = useState(true);
+  const [showKnowledgeCards, setShowKnowledgeCards] = useState(true);
   const noteAnchors = useMemo(
     () => buildNoteHoverAnchors(note?.llmResponse || '', sourceText),
     [note?.llmResponse, sourceText],
   );
+  const translationMarks = buildReaderMarks(
+    showHighlights ? highlights.filter((highlight) => highlight.pageSide === 'translation') : [],
+    showKnowledgeCards ? knowledgeCards.filter((card) => card.pageSide === 'translation') : [],
+  );
+  const handleHighlightClick = () => {
+    if (getSelectedReaderText()) {
+      onAddHighlight();
+      setShowHighlights(true);
+      return;
+    }
+    setShowHighlights((current) => !current);
+  };
+  const handleKnowledgeCardClick = () => {
+    if (getSelectedReaderText()) {
+      onCreateKnowledgeCard();
+      setShowKnowledgeCards(true);
+      return;
+    }
+    setShowKnowledgeCards((current) => !current);
+  };
 
   return (
     <article
@@ -2863,16 +2963,18 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
         {mode === 'translation' && (
           <>
             <button
-              onClick={onAddHighlight}
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
-              title="Highlight selected text"
+              onClick={handleHighlightClick}
+              className={`flex h-8 w-8 items-center justify-center rounded-md border ${showHighlights ? 'border-amber-400 bg-amber-100 text-amber-800' : 'border-stone-300 text-stone-400 hover:bg-stone-100'}`}
+              title={`${showHighlights ? 'Hide' : 'Show'} highlights; select text first to add one`}
+              aria-pressed={showHighlights}
             >
               <Highlighter className="h-4 w-4" />
             </button>
             <button
-              onClick={onCreateKnowledgeCard}
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
-              title="Create knowledge card from selected text"
+              onClick={handleKnowledgeCardClick}
+              className={`flex h-8 w-8 items-center justify-center rounded-md border ${showKnowledgeCards ? 'border-sky-400 bg-sky-100 text-sky-800' : 'border-stone-300 text-stone-400 hover:bg-stone-100'}`}
+              title={`${showKnowledgeCards ? 'Hide' : 'Show'} knowledge cards; select text first to add one`}
+              aria-pressed={showKnowledgeCards}
             >
               <FileText className="h-4 w-4" />
             </button>
@@ -2898,6 +3000,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
           theme={readingTheme}
           sourceText={sourceText}
           formatPageFrame={formatPageFrame && Boolean(activeTranslation)}
+          marks={translationMarks}
         />
         {isFormatOpen && (
           <ReadingThemePopover
@@ -2938,6 +3041,8 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
         noteResponse={note?.llmResponse || ''}
         noteAnchors={noteAnchors}
         onHoverNoteSource={onHoverNoteSource}
+        onDeleteHighlight={onDeleteHighlight}
+        onDeleteKnowledgeCard={onDeleteKnowledgeCard}
       />
     )}
     </article>
@@ -2951,6 +3056,8 @@ interface GuideViewProps {
   noteResponse: string;
   noteAnchors: HoverAnchor[];
   onHoverNoteSource: (text: string) => void;
+  onDeleteHighlight: (highlightId: string) => void;
+  onDeleteKnowledgeCard: (cardId: string) => void;
 }
 
 const GuideView: React.FC<GuideViewProps> = ({
@@ -2960,6 +3067,8 @@ const GuideView: React.FC<GuideViewProps> = ({
   noteResponse,
   noteAnchors,
   onHoverNoteSource,
+  onDeleteHighlight,
+  onDeleteKnowledgeCard,
 }) => (
   <div className="flex-1 overflow-y-auto">
     <div className="space-y-5">
@@ -2979,9 +3088,18 @@ const GuideView: React.FC<GuideViewProps> = ({
         {highlights.length > 0 ? (
           <div className="mt-3 space-y-2">
             {highlights.map((highlight) => (
-              <p key={highlight.id} className="rounded-sm bg-yellow-100 px-2 py-1 text-xs leading-5 text-stone-700">
-                {highlight.text}
-              </p>
+              <div key={highlight.id} className="flex items-start gap-2 rounded-sm bg-yellow-100 px-2 py-1 text-xs leading-5 text-stone-700">
+                <p className="min-w-0 flex-1">{highlight.text}</p>
+                <button
+                  type="button"
+                  onClick={() => onDeleteHighlight(highlight.id)}
+                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-stone-400 hover:bg-yellow-200 hover:text-red-700"
+                  title="Delete highlight"
+                  aria-label="Delete highlight"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             ))}
           </div>
         ) : (
@@ -2994,9 +3112,18 @@ const GuideView: React.FC<GuideViewProps> = ({
         {knowledgeCards.length > 0 ? (
           <div className="mt-3 space-y-2">
             {knowledgeCards.map((card) => (
-              <p key={card.id} className="rounded-sm border border-stone-200 bg-white px-2 py-1 text-xs leading-5 text-stone-700">
-                {card.excerpt}
-              </p>
+              <div key={card.id} className="flex items-start gap-2 rounded-sm border border-stone-200 bg-white px-2 py-1 text-xs leading-5 text-stone-700">
+                <p className="min-w-0 flex-1">{card.excerpt}</p>
+                <button
+                  type="button"
+                  onClick={() => onDeleteKnowledgeCard(card.id)}
+                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-stone-400 hover:bg-stone-100 hover:text-red-700"
+                  title="Delete knowledge card"
+                  aria-label="Delete knowledge card"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             ))}
           </div>
         ) : (
@@ -3023,6 +3150,7 @@ interface PdfCanvasPageProps {
   pageNumber: number;
   highlightText?: string;
   annotations?: AnnotationCard[];
+  marks?: ReaderMark[];
 }
 
 interface PdfPageLayout {
@@ -3156,6 +3284,71 @@ const applyPdfTextLayerHighlight = (layer: HTMLDivElement, phrase: string) => {
   });
 };
 
+const clearPdfReaderMarks = (layer: HTMLDivElement) => {
+  layer.querySelectorAll<HTMLElement>('mark.pdf-reader-mark').forEach((mark) => {
+    const parent = mark.parentNode;
+    mark.replaceWith(document.createTextNode(mark.textContent || ''));
+    parent?.normalize();
+  });
+};
+
+const applyPdfReaderMarks = (layer: HTMLDivElement, marks: ReaderMark[]) => {
+  clearPdfReaderMarks(layer);
+
+  if (!marks.length) {
+    return;
+  }
+
+  const candidates = marks.flatMap((mark) =>
+    getReaderMarkPhrases(mark).map((text) => ({ mark, text, lowerText: text.toLocaleLowerCase() })),
+  );
+
+  layer.querySelectorAll<HTMLSpanElement>('span[role="presentation"]').forEach((span) => {
+    const walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text;
+      if (!(node.parentElement?.closest('mark'))) {
+        textNodes.push(node);
+      }
+    }
+
+    textNodes.forEach((node) => {
+      const text = node.data;
+      const lowerText = text.toLocaleLowerCase();
+      const matches = candidates
+        .map((candidate) => ({ ...candidate, start: lowerText.indexOf(candidate.lowerText) }))
+        .filter((match) => match.start >= 0)
+        .sort((a, b) => a.start - b.start || b.text.length - a.text.length);
+
+      if (!matches.length) {
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      let cursor = 0;
+      matches.forEach((match) => {
+        if (match.start < cursor) {
+          return;
+        }
+        if (match.start > cursor) {
+          fragment.append(document.createTextNode(text.slice(cursor, match.start)));
+        }
+        const element = document.createElement('mark');
+        element.className = `pdf-reader-mark pdf-reader-mark-${match.mark.kind}`;
+        element.textContent = text.slice(match.start, match.start + match.text.length);
+        fragment.append(element);
+        cursor = match.start + match.text.length;
+      });
+      if (cursor < text.length) {
+        fragment.append(document.createTextNode(text.slice(cursor)));
+      }
+      node.replaceWith(fragment);
+    });
+  });
+};
+
 const clearPdfAnnotationAnchors = (layer: HTMLDivElement) => {
   const anchors = Array.from(layer.querySelectorAll<HTMLElement>('mark.pdf-annotation-anchor'));
 
@@ -3172,6 +3365,7 @@ const applyPdfAnnotationAnchors = (
   onOpen: (annotation: AnnotationCard, index: number, element: HTMLElement) => void,
   onClose: () => void,
 ) => {
+  clearPdfReaderMarks(layer);
   clearPdfAnnotationAnchors(layer);
   const spans = Array.from(layer.querySelectorAll<HTMLSpanElement>('span[role="presentation"]'));
 
@@ -3222,13 +3416,14 @@ const applyPdfAnnotationAnchors = (
   });
 };
 
-const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber, highlightText = '', annotations = [] }) => {
+const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber, highlightText = '', annotations = [], marks = [] }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const textLayerRenderRef = useRef<any>(null);
   const highlightTextRef = useRef(highlightText);
   const annotationsRef = useRef(annotations);
+  const marksRef = useRef(marks);
   const renderRequestRef = useRef(0);
   const [isRendering, setIsRendering] = useState(false);
   const [renderError, setRenderError] = useState('');
@@ -3328,9 +3523,18 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber, highl
         (...args) => openPdfAnnotationRef.current(...args),
         () => closePdfAnnotationRef.current(),
       );
+      applyPdfReaderMarks(textLayerRef.current, marksRef.current);
       applyPdfTextLayerHighlight(textLayerRef.current, highlightTextRef.current);
     }
   }, [annotations]);
+
+  useEffect(() => {
+    marksRef.current = marks;
+
+    if (textLayerRef.current) {
+      applyPdfReaderMarks(textLayerRef.current, marks);
+    }
+  }, [marks]);
 
   useEffect(() => {
     if (!pageLayout || !textLayerRef.current) {
@@ -3362,6 +3566,7 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber, highl
           (...args) => openPdfAnnotationRef.current(...args),
           () => closePdfAnnotationRef.current(),
         );
+        applyPdfReaderMarks(layer, marksRef.current);
         applyPdfTextLayerHighlight(layer, highlightTextRef.current);
       })
       .catch((error: unknown) => {
@@ -3483,6 +3688,7 @@ interface FormattedReadingTextProps {
   theme?: ReadingTheme;
   hoverHighlightText?: string;
   annotations?: AnnotationCard[];
+  marks?: ReaderMark[];
   sourceText?: string;
   formatPageFrame?: boolean;
 }
@@ -3618,6 +3824,7 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
   theme,
   hoverHighlightText = '',
   annotations = [],
+  marks = [],
   sourceText,
   formatPageFrame,
 }) => {
@@ -3650,6 +3857,7 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
           layout={layout}
           hoverHighlightText={hoverHighlightText}
           annotations={annotations}
+          marks={marks}
           theme={theme}
         />
       ) : (
@@ -3680,7 +3888,7 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
                     : undefined
                 }
               >
-                <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} />
+                <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} marks={marks} />
               </div>
             );
           }
@@ -3701,7 +3909,7 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
                     : undefined
                 }
               >
-                <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} />
+                <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} marks={marks} />
               </div>
             );
           }
@@ -3713,14 +3921,14 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
                 className="my-2 text-center text-[1.08rem] font-semibold leading-7 md:text-[1.12rem]"
                 style={theme ? { color: theme.textColor, textAlign: 'center' } : undefined}
               >
-                <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} />
+                <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} marks={marks} />
               </div>
             );
           }
 
           return (
             <div key={`${line.text}-${index}`}>
-              <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} />
+              <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} marks={marks} />
             </div>
           );
         })
@@ -3733,10 +3941,11 @@ interface StructuredReadingLayoutProps {
   layout: TranslationLayout;
   hoverHighlightText: string;
   annotations: AnnotationCard[];
+  marks: ReaderMark[];
   theme?: ReadingTheme;
 }
 
-const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layout, hoverHighlightText, annotations, theme }) => (
+const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layout, hoverHighlightText, annotations, marks, theme }) => (
   <>
     {layout.header?.trim() && (
       <div
@@ -3752,7 +3961,7 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
             : undefined
         }
       >
-        <HighlightedLine line={layout.header} phrase={hoverHighlightText} annotations={annotations} />
+        <HighlightedLine line={layout.header} phrase={hoverHighlightText} annotations={annotations} marks={marks} />
       </div>
     )}
 
@@ -3761,7 +3970,7 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
         className="mb-5 text-center text-[1.08rem] font-semibold leading-7 md:text-[1.12rem]"
         style={theme ? { color: theme.textColor, textAlign: 'center' } : undefined}
       >
-        <HighlightedLine line={layout.title} phrase={hoverHighlightText} annotations={annotations} />
+        <HighlightedLine line={layout.title} phrase={hoverHighlightText} annotations={annotations} marks={marks} />
       </div>
     )}
 
@@ -3778,11 +3987,11 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
           className="my-2 text-center text-[1.08rem] font-semibold leading-7 md:text-[1.12rem]"
           style={theme ? { color: theme.textColor, textAlign: 'center' } : undefined}
         >
-          <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} />
+          <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} marks={marks} />
         </div>
       ) : (
         <div key={`structured-body-${line.text}-${index}`}>
-          <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} />
+          <HighlightedLine line={line.text} phrase={hoverHighlightText} annotations={annotations} marks={marks} />
         </div>
       ),
     )}
@@ -3796,7 +4005,7 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
           <li key={`${note}-${index}`} className="grid grid-cols-[1.5rem_1fr] gap-2">
             <span>{index + 1}</span>
             <span>
-              <HighlightedLine line={String(note)} phrase={hoverHighlightText} annotations={annotations} />
+              <HighlightedLine line={String(note)} phrase={hoverHighlightText} annotations={annotations} marks={marks} />
             </span>
           </li>
         ))}
@@ -3817,7 +4026,7 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
             : undefined
         }
       >
-        <HighlightedLine line={layout.footer} phrase={hoverHighlightText} annotations={annotations} />
+        <HighlightedLine line={layout.footer} phrase={hoverHighlightText} annotations={annotations} marks={marks} />
       </div>
     )}
   </>
@@ -3827,6 +4036,7 @@ interface HighlightedLineProps {
   line: string;
   phrase: string;
   annotations?: AnnotationCard[];
+  marks?: ReaderMark[];
 }
 
 interface AnnotationLinePart {
@@ -3908,7 +4118,7 @@ const FloatingAnnotationCard: React.FC<FloatingAnnotationCardProps> = ({ annotat
     document.body,
   );
 
-const InlineAnnotationAnchor: React.FC<AnnotationCardContentProps & { text: string }> = ({ annotation, index, text }) => {
+const InlineAnnotationAnchor: React.FC<AnnotationCardContentProps & { text: React.ReactNode }> = ({ annotation, index, text }) => {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const [position, setPosition] = useState<FloatingAnnotationPosition | null>(null);
   const openCard = () => {
@@ -3957,7 +4167,49 @@ const renderHoverHighlightedText = (text: string, phrase: string) => {
   );
 };
 
-const HighlightedLine: React.FC<HighlightedLineProps> = ({ line, phrase, annotations = [] }) => (
+const renderReaderMarkedText = (text: string, marks: ReaderMark[], hoverPhrase: string) => {
+  if (!marks.length) {
+    return renderHoverHighlightedText(text, hoverPhrase);
+  }
+
+  const candidates = marks.flatMap((mark) =>
+    getReaderMarkPhrases(mark).map((candidate) => ({ mark, text: candidate })),
+  );
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const next = candidates
+      .map((candidate) => ({
+        ...candidate,
+        index: text.toLocaleLowerCase().indexOf(candidate.text.toLocaleLowerCase(), cursor),
+      }))
+      .filter((candidate) => candidate.index >= 0)
+      .sort((a, b) => a.index - b.index || b.text.length - a.text.length)[0];
+
+    if (!next) {
+      parts.push(<React.Fragment key={`plain-${cursor}`}>{renderHoverHighlightedText(text.slice(cursor), hoverPhrase)}</React.Fragment>);
+      break;
+    }
+    if (next.index > cursor) {
+      parts.push(<React.Fragment key={`plain-${cursor}`}>{renderHoverHighlightedText(text.slice(cursor, next.index), hoverPhrase)}</React.Fragment>);
+    }
+    const end = next.index + next.text.length;
+    parts.push(
+      <mark
+        key={`${next.mark.id}-${next.index}`}
+        className={next.mark.kind === 'highlight' ? 'rounded-sm bg-yellow-200 px-0.5 text-inherit' : 'rounded-sm bg-sky-200 px-0.5 text-inherit'}
+      >
+        {text.slice(next.index, end)}
+      </mark>,
+    );
+    cursor = end;
+  }
+
+  return <>{parts}</>;
+};
+
+const HighlightedLine: React.FC<HighlightedLineProps> = ({ line, phrase, annotations = [], marks = [] }) => (
   <>
     {splitLineByAnnotations(line, annotations).map((part, index) =>
       part.annotation && part.annotationIndex !== undefined ? (
@@ -3965,11 +4217,11 @@ const HighlightedLine: React.FC<HighlightedLineProps> = ({ line, phrase, annotat
           key={`${part.annotation.id}-${index}`}
           annotation={part.annotation}
           index={part.annotationIndex}
-          text={part.text}
+          text={renderReaderMarkedText(part.text, marks, phrase)}
         />
       ) : (
         <React.Fragment key={`${part.text}-${index}`}>
-          {renderHoverHighlightedText(part.text, phrase)}
+          {renderReaderMarkedText(part.text, marks, phrase)}
         </React.Fragment>
       ),
     )}
