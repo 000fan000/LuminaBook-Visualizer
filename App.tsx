@@ -44,6 +44,7 @@ import {
 } from './services/llmEvaluationStorage';
 import {
   converseWithReadingAgent,
+  defineSelectedText,
   detectBookMetadata,
   PROVIDER_PRESETS,
   respondToReaderNote,
@@ -381,6 +382,7 @@ const App: React.FC = () => {
   const [isTranslating, setIsTranslating] = useState(false);
   const [isRespondingToNote, setIsRespondingToNote] = useState(false);
   const [isReadingAgentResponding, setIsReadingAgentResponding] = useState(false);
+  const [isDefiningSelection, setIsDefiningSelection] = useState(false);
   const [readingAgentMessages, setReadingAgentMessages] = useState<ReadingAgentMessage[]>([]);
   const [llmRequestStartedAt, setLlmRequestStartedAt] = useState<number | null>(null);
   const [llmElapsedSeconds, setLlmElapsedSeconds] = useState(0);
@@ -1223,12 +1225,12 @@ const App: React.FC = () => {
     });
   };
 
-  const addHighlight = (pageSide: Highlight['pageSide']) => {
+  const addHighlight = (pageSide: Highlight['pageSide'], selectedText?: string) => {
     if (!book || !activeSegment) {
       return;
     }
 
-    const selection = getSelectedReaderText();
+    const selection = selectedText?.trim() || getSelectedReaderText();
 
     if (!selection) {
       setStatusMessage('Select text in the page first, then add a highlight.');
@@ -1250,6 +1252,36 @@ const App: React.FC = () => {
     ]);
     window.getSelection()?.removeAllRanges();
     setStatusMessage('Highlight saved.');
+  };
+
+  const defineSelection = async (pageSide: Highlight['pageSide'], selectedText: string) => {
+    if (!book || !activeSegment || !selectedText.trim() || isDefiningSelection) return;
+    persistActiveLlmProfile();
+    setIsDefiningSelection(true);
+    setErrorMessage('');
+    try {
+      const explanation = await defineSelectedText(
+        selectedText.trim(), activeSegment, activeTranslation?.translatedText || '', motherLanguage, settings,
+      );
+      setKnowledgeCards((current) => [...current, {
+        id: `${book.id}-${activeSegment.id}-card-${Date.now()}`,
+        bookId: book.id,
+        bookTitle: book.title,
+        segmentId: activeSegment.id,
+        segmentIndex: activeSegmentIndex,
+        pageSide,
+        excerpt: selectedText.trim().slice(0, 1000),
+        explanation,
+        createdAt: new Date().toISOString(),
+      }]);
+      window.getSelection()?.removeAllRanges();
+      setStatusMessage('Definition saved to Knowledge Cards.');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not define selected text.');
+    } finally {
+      setIsDefiningSelection(false);
+      refreshEvaluationRecords();
+    }
   };
 
   const createKnowledgeCard = (pageSide: Highlight['pageSide']) => {
@@ -1434,6 +1466,8 @@ const App: React.FC = () => {
         onToggleBookmark={toggleBookmark}
         onAddHighlight={addHighlight}
         onCreateKnowledgeCard={createKnowledgeCard}
+        onDefineSelection={defineSelection}
+        isDefiningSelection={isDefiningSelection}
         onDeleteHighlight={deleteHighlight}
         onDeleteKnowledgeCard={deleteKnowledgeCard}
         rightPaneMode={rightPaneMode}
@@ -2062,8 +2096,10 @@ interface ReaderViewProps {
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
   onToggleBookmark: () => void;
-  onAddHighlight: (pageSide: Highlight['pageSide']) => void;
+  onAddHighlight: (pageSide: Highlight['pageSide'], selectedText?: string) => void;
   onCreateKnowledgeCard: (pageSide: Highlight['pageSide']) => void;
+  onDefineSelection: (pageSide: Highlight['pageSide'], selectedText: string) => void;
+  isDefiningSelection: boolean;
   onDeleteHighlight: (highlightId: string) => void;
   onDeleteKnowledgeCard: (cardId: string) => void;
   rightPaneMode: RightPaneMode;
@@ -2127,6 +2163,8 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   onToggleBookmark,
   onAddHighlight,
   onCreateKnowledgeCard,
+  onDefineSelection,
+  isDefiningSelection,
   onDeleteHighlight,
   onDeleteKnowledgeCard,
   rightPaneMode,
@@ -2179,12 +2217,12 @@ const ReaderView: React.FC<ReaderViewProps> = ({
           {isTocOpen && tocEntries.length > 0 && (
             <div className="absolute left-1/2 top-12 z-30 max-h-[70vh] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 overflow-auto rounded-md border border-stone-300 bg-[#fffdf8] p-2 text-left shadow-xl">
               <div className="flex items-center justify-between border-b border-stone-200 px-2 py-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">目录</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">{t('reader.contents')}</p>
                 <button
                   type="button"
                   onClick={() => setIsTocOpen(false)}
                   className="flex h-7 w-7 items-center justify-center rounded-sm text-stone-500 hover:bg-stone-100"
-                  title="Close table of contents"
+                  title={t('reader.closeContents')}
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -2273,7 +2311,9 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'original')}
             annotations={annotationCards}
             hoverHighlightText={hoveredNoteSourceText}
-            onAddHighlight={() => onAddHighlight('original')}
+            onAddHighlight={(text) => onAddHighlight('original', text)}
+            onDefineSelection={(text) => onDefineSelection('original', text)}
+            isDefiningSelection={isDefiningSelection}
             onCreateKnowledgeCard={() => onCreateKnowledgeCard('original')}
             onThemeChange={onSourceThemeChange}
             onApplyTheme={onApplySourceTheme}
@@ -2296,7 +2336,9 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             onThemeChange={onTranslationThemeChange}
             onApplyTheme={onApplyTranslationTheme}
             onSaveTheme={onSaveTranslationTheme}
-            onAddHighlight={() => onAddHighlight('translation')}
+            onAddHighlight={(text) => onAddHighlight('translation', text)}
+            onDefineSelection={(text) => onDefineSelection('translation', text)}
+            isDefiningSelection={isDefiningSelection}
             onCreateKnowledgeCard={() => onCreateKnowledgeCard('translation')}
             onDeleteHighlight={onDeleteHighlight}
             onDeleteKnowledgeCard={onDeleteKnowledgeCard}
@@ -2369,13 +2411,15 @@ interface UploadCoverTileProps {
   onFileUpload: (files: FileList | File[] | null) => void;
 }
 
-const UploadCoverTile: React.FC<UploadCoverTileProps> = ({ isParsing, onFileUpload }) => (
+const UploadCoverTile: React.FC<UploadCoverTileProps> = ({ isParsing, onFileUpload }) => {
+  const { t } = useTranslation();
+  return (
   <label className="group block cursor-pointer">
     <div className="flex aspect-[2/3] flex-col items-center justify-center rounded-sm border border-dashed border-stone-500 bg-[#d8cab3] p-4 text-center shadow-[6px_8px_0_rgba(80,63,42,0.16)] transition group-hover:-translate-y-1 group-hover:bg-[#e4d7c0]">
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#fffdf8] text-stone-700 shadow-sm">
         {isParsing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Upload className="h-6 w-6" />}
       </div>
-      <p className="mt-5 text-sm font-semibold text-stone-900">Add Book</p>
+      <p className="mt-5 text-sm font-semibold text-stone-900">{t('books.add')}</p>
       <p className="mt-2 max-w-24 text-xs leading-5 text-stone-600">PDF TXT EPUB</p>
     </div>
     <input
@@ -2389,7 +2433,8 @@ const UploadCoverTile: React.FC<UploadCoverTileProps> = ({ isParsing, onFileUplo
       }}
     />
   </label>
-);
+  );
+};
 
 interface BookCoverTileProps {
   book: UploadedBook | null;
@@ -2414,6 +2459,7 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
   onDetectBookMetadata,
   onOpenBookmark,
 }) => {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const facts = book ? [book.publicationYear, book.country].filter(Boolean).join(' · ') : '';
 
@@ -2460,7 +2506,7 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
             <button
               type="button"
               onClick={() => setIsEditing(true)}
-              title="Edit book details"
+              title={t('books.edit')}
               aria-label={`Edit ${book.title}`}
               className="flex h-8 w-8 items-center justify-center rounded-sm border border-white/15 bg-black/45 text-stone-100 shadow-sm transition hover:bg-stone-700 focus:outline-none focus:ring-2 focus:ring-white/60"
             >
@@ -2469,7 +2515,7 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
             <button
               type="button"
               onClick={onDeleteBook}
-              title="Delete book"
+              title={t('books.delete')}
               aria-label={`Delete ${book.title}`}
               className="flex h-8 w-8 items-center justify-center rounded-sm border border-white/15 bg-black/45 text-stone-100 shadow-sm transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-white/60"
             >
@@ -2533,6 +2579,7 @@ const MetadataField: React.FC<MetadataFieldProps> = ({ label, value, onChange, t
 );
 
 const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, onSave, onAutoDetect }) => {
+  const { t } = useTranslation();
   const [title, setTitle] = useState(book.title);
   const [author, setAuthor] = useState(book.author || '');
   const [year, setYear] = useState(book.publicationYear ? String(book.publicationYear) : '');
@@ -2637,8 +2684,8 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
       <form onSubmit={submit} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-md border border-stone-300 bg-[#f5f1e8] p-5 shadow-2xl md:p-6" role="dialog" aria-modal="true" aria-labelledby="book-details-title">
         <div className="flex items-start justify-between gap-4 border-b border-stone-300 pb-4">
           <div>
-            <p className="text-xs font-medium uppercase text-stone-500">Library metadata</p>
-            <h2 id="book-details-title" className="mt-1 text-xl font-semibold text-stone-950">Book details</h2>
+            <p className="text-xs font-medium uppercase text-stone-500">{t('books.metadata')}</p>
+            <h2 id="book-details-title" className="mt-1 text-xl font-semibold text-stone-950">{t('books.details')}</h2>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -2655,7 +2702,7 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
               onClick={onClose}
               disabled={isBusy}
               className="flex h-9 w-9 items-center justify-center rounded-md text-stone-600 hover:bg-stone-200 disabled:opacity-50"
-              title="Close"
+              title={t('books.close')}
             >
               <X className="h-5 w-5" />
             </button>
@@ -2664,16 +2711,16 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <div className="md:col-span-2">
-            <MetadataField label="Title" value={title} onChange={setTitle} />
+            <MetadataField label={t('books.title')} value={title} onChange={setTitle} />
           </div>
-          <MetadataField label="Author" value={author} onChange={setAuthor} />
-          <MetadataField label="Publication year" value={year} onChange={setYear} type="number" />
-          <MetadataField label="Country" value={country} onChange={setCountry} />
-          <MetadataField label="Original language" value={language} onChange={setLanguage} />
-          <MetadataField label="Publisher" value={publisher} onChange={setPublisher} />
-          <MetadataField label="Tags" value={tags} onChange={setTags} placeholder="classic, philosophy" />
+          <MetadataField label={t('books.author')} value={author} onChange={setAuthor} />
+          <MetadataField label={t('books.year')} value={year} onChange={setYear} type="number" />
+          <MetadataField label={t('books.country')} value={country} onChange={setCountry} />
+          <MetadataField label={t('books.originalLanguage')} value={language} onChange={setLanguage} />
+          <MetadataField label={t('books.publisher')} value={publisher} onChange={setPublisher} />
+          <MetadataField label={t('books.tags')} value={tags} onChange={setTags} placeholder={t('books.tagsPlaceholder')} />
           <label className="block md:col-span-2">
-            <span className="text-xs font-medium text-stone-600">Description</span>
+            <span className="text-xs font-medium text-stone-600">{t('books.description')}</span>
             <textarea
               value={description}
               onChange={(event) => setDescription(event.target.value)}
@@ -2715,8 +2762,10 @@ interface BookPageProps {
   knowledgeCards: KnowledgeCard[];
   annotations: AnnotationCard[];
   hoverHighlightText?: string;
-  onAddHighlight: () => void;
+  onAddHighlight: (selectedText?: string) => void;
   onCreateKnowledgeCard: () => void;
+  onDefineSelection: (selectedText: string) => void;
+  isDefiningSelection: boolean;
   onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
   onApplyTheme: (themeId: string) => void;
   onSaveTheme: () => void;
@@ -2786,6 +2835,77 @@ const AnnotationPopupCard: React.FC<AnnotationCardContentProps> = ({ annotation,
   <AnnotationCardContent annotation={annotation} index={index} />
 );
 
+interface SelectionToolbarProps {
+  containerRef: React.RefObject<HTMLElement | null>;
+  onHighlight: (text: string) => void;
+  onDefine: (text: string) => void;
+  isDefining: boolean;
+}
+
+const SelectionToolbar: React.FC<SelectionToolbarProps> = ({ containerRef, onHighlight, onDefine, isDefining }) => {
+  const { t } = useTranslation();
+  const [selection, setSelection] = useState<{ text: string; left: number; top: number } | null>(null);
+
+  useEffect(() => {
+    const update = () => {
+      const selected = window.getSelection();
+      if (!selected || selected.isCollapsed || !selected.rangeCount) {
+        setSelection(null);
+        return;
+      }
+      const text = selected.toString().replace(/\s+\n/g, '\n').trim();
+      const range = selected.getRangeAt(0);
+      const node = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+        ? range.commonAncestorContainer.parentElement
+        : range.commonAncestorContainer as Element;
+      if (!text || !node || !containerRef.current?.contains(node)) {
+        setSelection(null);
+        return;
+      }
+      const rect = range.getBoundingClientRect();
+      if (!rect.width && !rect.height) return;
+      setSelection({ text: text.slice(0, 1000), left: rect.left + rect.width / 2, top: Math.max(8, rect.top - 10) });
+    };
+    const deferUpdate = () => window.setTimeout(update, 0);
+    document.addEventListener('mouseup', deferUpdate);
+    document.addEventListener('keyup', deferUpdate);
+    document.addEventListener('touchend', deferUpdate);
+    return () => {
+      document.removeEventListener('mouseup', deferUpdate);
+      document.removeEventListener('keyup', deferUpdate);
+      document.removeEventListener('touchend', deferUpdate);
+    };
+  }, [containerRef]);
+
+  if (!selection) return null;
+
+  const act = (action: (text: string) => void) => {
+    action(selection.text);
+    window.getSelection()?.removeAllRanges();
+    setSelection(null);
+  };
+
+  return createPortal(
+    <div
+      className="fixed z-[100] flex -translate-x-1/2 -translate-y-full items-center overflow-hidden rounded-lg border border-stone-700 bg-stone-950 text-white shadow-xl"
+      style={{ left: selection.left, top: selection.top }}
+      role="toolbar"
+      onMouseDown={(event) => event.preventDefault()}
+    >
+      <button type="button" onClick={() => act(onHighlight)} className="flex h-9 items-center gap-1.5 px-3 text-xs font-medium hover:bg-stone-800">
+        <Highlighter className="h-3.5 w-3.5 text-amber-300" />
+        {t('selection.highlight')}
+      </button>
+      <span className="h-5 w-px bg-stone-700" />
+      <button type="button" disabled={isDefining} onClick={() => act(onDefine)} className="flex h-9 items-center gap-1.5 px-3 text-xs font-medium hover:bg-stone-800 disabled:opacity-50">
+        {isDefining ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-sky-300" />}
+        {t(isDefining ? 'selection.defining' : 'selection.define')}
+      </button>
+    </div>,
+    document.body,
+  );
+};
+
 const BookPage: React.FC<BookPageProps> = ({
   eyebrow,
   title,
@@ -2803,11 +2923,15 @@ const BookPage: React.FC<BookPageProps> = ({
   hoverHighlightText = '',
   onAddHighlight,
   onCreateKnowledgeCard,
+  onDefineSelection,
+  isDefiningSelection,
   onThemeChange,
   onApplyTheme,
   onSaveTheme,
   muted,
 }) => {
+  const { t } = useTranslation();
+  const pageRef = useRef<HTMLElement>(null);
   const [isFormatOpen, setIsFormatOpen] = useState(false);
   const [showHighlights, setShowHighlights] = useState(true);
   const [showKnowledgeCards, setShowKnowledgeCards] = useState(true);
@@ -2841,10 +2965,16 @@ const BookPage: React.FC<BookPageProps> = ({
     : undefined;
 
   return (
-  <article
+  <article ref={pageRef}
     className="relative flex min-h-[680px] flex-col rounded-sm border border-stone-300 px-7 py-6 shadow-[0_18px_60px_rgba(68,54,34,0.13)] md:px-10"
     style={readingTheme ? { backgroundColor: readingTheme.background, color: readingTheme.textColor } : { backgroundColor: '#fffdf8' }}
   >
+    <SelectionToolbar
+      containerRef={pageRef}
+      onHighlight={(text) => { onAddHighlight(text); setShowHighlights(true); }}
+      onDefine={(text) => { onDefineSelection(text); setShowKnowledgeCards(true); }}
+      isDefining={isDefiningSelection}
+    />
     <div
       className="-mx-3 mb-8 flex flex-wrap items-center justify-between gap-3 border-b border-stone-300 bg-stone-50/80 px-3 pb-4 pt-1 text-stone-500 md:-mx-5 md:px-5"
       style={sectionStyle}
@@ -2857,7 +2987,7 @@ const BookPage: React.FC<BookPageProps> = ({
         <button
           onClick={handleHighlightClick}
           className={`flex h-8 w-8 items-center justify-center rounded-md border ${showHighlights ? 'border-amber-400 bg-amber-100 text-amber-800' : 'border-stone-300 text-stone-400 hover:bg-stone-100'}`}
-          title={`${showHighlights ? 'Hide' : 'Show'} highlights; select text first to add one`}
+          title={t(showHighlights ? 'reader.hideHighlights' : 'reader.showHighlights')}
           aria-pressed={showHighlights}
         >
           <Highlighter className="h-4 w-4" />
@@ -2865,7 +2995,7 @@ const BookPage: React.FC<BookPageProps> = ({
         <button
           onClick={handleKnowledgeCardClick}
           className={`flex h-8 w-8 items-center justify-center rounded-md border ${showKnowledgeCards ? 'border-sky-400 bg-sky-100 text-sky-800' : 'border-stone-300 text-stone-400 hover:bg-stone-100'}`}
-          title={`${showKnowledgeCards ? 'Hide' : 'Show'} knowledge cards; select text first to add one`}
+          title={t(showKnowledgeCards ? 'reader.hideCards' : 'reader.showCards')}
           aria-pressed={showKnowledgeCards}
         >
           <FileText className="h-4 w-4" />
@@ -2874,7 +3004,7 @@ const BookPage: React.FC<BookPageProps> = ({
           <button
             onClick={() => setIsFormatOpen((current) => !current)}
             className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
-            title="Tune original text format"
+            title={t('reader.tuneOriginal')}
           >
             <BookOpen className="h-4 w-4" />
           </button>
@@ -2910,8 +3040,8 @@ const BookPage: React.FC<BookPageProps> = ({
         />
         {isFormatOpen && readingTheme && (
           <ReadingThemePopover
-            title="Original Format"
-            description="Tune the source text page."
+            title={t('reader.originalFormat')}
+            description={t('reader.tunePage')}
             theme={readingTheme}
             themes={readingThemes}
             onThemeChange={onThemeChange}
@@ -2962,8 +3092,10 @@ interface RightReaderPaneProps {
   onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
   onApplyTheme: (themeId: string) => void;
   onSaveTheme: () => void;
-  onAddHighlight: () => void;
+  onAddHighlight: (selectedText?: string) => void;
   onCreateKnowledgeCard: () => void;
+  onDefineSelection: (selectedText: string) => void;
+  isDefiningSelection: boolean;
   onDeleteHighlight: (highlightId: string) => void;
   onDeleteKnowledgeCard: (cardId: string) => void;
   onNoteChange: (body: string) => void;
@@ -2990,6 +3122,8 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   onSaveTheme,
   onAddHighlight,
   onCreateKnowledgeCard,
+  onDefineSelection,
+  isDefiningSelection,
   onDeleteHighlight,
   onDeleteKnowledgeCard,
   onNoteChange,
@@ -2997,6 +3131,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   isRespondingToNote,
 }) => {
   const { t } = useTranslation();
+  const pageRef = useRef<HTMLElement>(null);
   const [isFormatOpen, setIsFormatOpen] = useState(false);
   const [showHighlights, setShowHighlights] = useState(true);
   const [showKnowledgeCards, setShowKnowledgeCards] = useState(true);
@@ -3026,10 +3161,16 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   };
 
   return (
-    <article
+    <article ref={pageRef}
       className="relative flex min-h-[680px] flex-col rounded-sm border border-stone-300 px-7 py-6 shadow-[0_18px_60px_rgba(68,54,34,0.13)] md:px-10"
       style={mode === 'translation' ? { backgroundColor: readingTheme.background, color: readingTheme.textColor } : { backgroundColor: '#fffdf8' }}
     >
+    <SelectionToolbar
+      containerRef={pageRef}
+      onHighlight={(text) => { onAddHighlight(text); setShowHighlights(true); }}
+      onDefine={(text) => { onDefineSelection(text); setShowKnowledgeCards(true); }}
+      isDefining={isDefiningSelection}
+    />
     <div className="mb-6 flex items-center justify-between gap-3 border-b border-stone-200 pb-4">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
@@ -3062,7 +3203,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
             <button
               onClick={handleHighlightClick}
               className={`flex h-8 w-8 items-center justify-center rounded-md border ${showHighlights ? 'border-amber-400 bg-amber-100 text-amber-800' : 'border-stone-300 text-stone-400 hover:bg-stone-100'}`}
-              title={`${showHighlights ? 'Hide' : 'Show'} highlights; select text first to add one`}
+              title={t(showHighlights ? 'reader.hideHighlights' : 'reader.showHighlights')}
               aria-pressed={showHighlights}
             >
               <Highlighter className="h-4 w-4" />
@@ -3070,7 +3211,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
             <button
               onClick={handleKnowledgeCardClick}
               className={`flex h-8 w-8 items-center justify-center rounded-md border ${showKnowledgeCards ? 'border-sky-400 bg-sky-100 text-sky-800' : 'border-stone-300 text-stone-400 hover:bg-stone-100'}`}
-              title={`${showKnowledgeCards ? 'Hide' : 'Show'} knowledge cards; select text first to add one`}
+              title={t(showKnowledgeCards ? 'reader.hideCards' : 'reader.showCards')}
               aria-pressed={showKnowledgeCards}
             >
               <FileText className="h-4 w-4" />
@@ -3078,7 +3219,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
             <button
               onClick={() => setIsFormatOpen((current) => !current)}
               className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
-              title="Tune translation text format"
+              title={t('reader.tuneTranslation')}
             >
               <BookOpen className="h-4 w-4" />
             </button>
@@ -3101,8 +3242,8 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
         />
         {isFormatOpen && (
           <ReadingThemePopover
-            title="Translation Format"
-            description="Tune the facing page."
+            title={t('reader.translationFormat')}
+            description={t('reader.tuneFacingPage')}
             theme={readingTheme}
             themes={readingThemes}
             onThemeChange={onThemeChange}
@@ -3312,22 +3453,25 @@ const GuideView: React.FC<GuideViewProps> = ({
   onHoverNoteSource,
   onDeleteHighlight,
   onDeleteKnowledgeCard,
-}) => (
+}) => {
+  const { t } = useTranslation();
+
+  return (
   <div className="flex-1 overflow-y-auto">
     <div className="space-y-5">
       <section>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Page Remark</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">{t('guide.pageRemark')}</p>
         {activeTranslation ? (
           <div className="mt-3 rounded-sm border border-stone-200 bg-white p-4 font-serif text-base leading-7 text-stone-700 shadow-sm">
-            {activeTranslation.pageGuide || activeTranslation.commentary || 'No page guide was generated.'}
+            {activeTranslation.pageGuide || activeTranslation.commentary || t('guide.noPageGuide')}
           </div>
         ) : (
-          <p className="mt-3 text-sm italic text-stone-400">Translate this page to generate its reading guide.</p>
+          <p className="mt-3 text-sm italic text-stone-400">{t('guide.translateForGuide')}</p>
         )}
       </section>
 
       <section className="border-t border-stone-200 pt-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Highlights</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">{t('guide.highlights')}</p>
         {highlights.length > 0 ? (
           <div className="mt-3 space-y-2">
             {highlights.map((highlight) => (
@@ -3337,8 +3481,8 @@ const GuideView: React.FC<GuideViewProps> = ({
                   type="button"
                   onClick={() => onDeleteHighlight(highlight.id)}
                   className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-stone-400 hover:bg-yellow-200 hover:text-red-700"
-                  title="Delete highlight"
-                  aria-label="Delete highlight"
+                  title={t('guide.deleteHighlight')}
+                  aria-label={t('guide.deleteHighlight')}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -3346,23 +3490,26 @@ const GuideView: React.FC<GuideViewProps> = ({
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-sm italic text-stone-400">No highlights on this page.</p>
+          <p className="mt-3 text-sm italic text-stone-400">{t('guide.noHighlights')}</p>
         )}
       </section>
 
       <section className="border-t border-stone-200 pt-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Knowledge Cards</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">{t('guide.knowledgeCards')}</p>
         {knowledgeCards.length > 0 ? (
           <div className="mt-3 space-y-2">
             {knowledgeCards.map((card) => (
-              <div key={card.id} className="flex items-start gap-2 rounded-sm border border-stone-200 bg-white px-2 py-1 text-xs leading-5 text-stone-700">
-                <p className="min-w-0 flex-1">{card.excerpt}</p>
+              <div key={card.id} className="flex items-start gap-2 rounded-sm border border-stone-200 bg-white px-3 py-2 text-xs leading-5 text-stone-700">
+                <div className="min-w-0 flex-1">
+                  <p className="font-serif font-semibold text-stone-800">{card.excerpt}</p>
+                  {card.explanation && <p className="mt-2 whitespace-pre-wrap border-t border-stone-100 pt-2 text-stone-600">{card.explanation}</p>}
+                </div>
                 <button
                   type="button"
                   onClick={() => onDeleteKnowledgeCard(card.id)}
                   className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-stone-400 hover:bg-stone-100 hover:text-red-700"
-                  title="Delete knowledge card"
-                  aria-label="Delete knowledge card"
+                  title={t('guide.deleteCard')}
+                  aria-label={t('guide.deleteCard')}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -3370,23 +3517,24 @@ const GuideView: React.FC<GuideViewProps> = ({
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-sm italic text-stone-400">No knowledge cards on this page.</p>
+          <p className="mt-3 text-sm italic text-stone-400">{t('guide.noCards')}</p>
         )}
       </section>
 
       <section className="border-t border-stone-200 pt-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">LLM Note Response</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">{t('guide.noteResponse')}</p>
         {noteResponse ? (
           <div className="mt-3 rounded-sm border border-stone-300 bg-white p-4 text-sm leading-6 text-stone-700">
             <HoverableLlmResponse text={noteResponse} anchors={noteAnchors} onHoverSource={onHoverNoteSource} />
           </div>
         ) : (
-          <p className="mt-3 text-sm italic text-stone-400">No LLM response yet.</p>
+          <p className="mt-3 text-sm italic text-stone-400">{t('guide.noResponse')}</p>
         )}
       </section>
     </div>
   </div>
-);
+  );
+};
 
 interface PdfCanvasPageProps {
   source: string | ArrayBuffer;
@@ -4489,7 +4637,10 @@ const ReadingThemePopover: React.FC<ReadingThemePopoverProps> = ({
   onThemeChange,
   onApplyTheme,
   onSaveTheme,
-}) => (
+}) => {
+  const { t } = useTranslation();
+
+  return (
   <div className="absolute right-6 top-20 z-30 w-80 rounded-md border border-stone-300 bg-[#fffdf8] p-4 text-stone-900 shadow-2xl">
     <div className="mb-4 flex items-center justify-between gap-3">
       <div>
@@ -4501,7 +4652,7 @@ const ReadingThemePopover: React.FC<ReadingThemePopoverProps> = ({
         className="flex h-8 items-center gap-1 rounded-md border border-stone-300 px-2 text-xs font-medium hover:bg-stone-100"
       >
         <Plus className="h-3.5 w-3.5" />
-        Save
+        {t('format.save')}
       </button>
     </div>
 
@@ -4522,35 +4673,35 @@ const ReadingThemePopover: React.FC<ReadingThemePopoverProps> = ({
 
     <div className="mt-4 space-y-3">
       <label className="block text-xs font-medium text-stone-600">
-        Font
+        {t('format.font')}
         <select
           value={theme.font}
           onChange={(event) => onThemeChange('font', event.target.value as TextFont)}
           className="mt-1 h-9 w-full rounded-md border border-stone-300 bg-white px-2 text-sm"
         >
-          <option value="serif">Serif</option>
-          <option value="sans">Sans</option>
-          <option value="mono">Mono</option>
+          <option value="serif">{t('format.serif')}</option>
+          <option value="sans">{t('format.sans')}</option>
+          <option value="mono">{t('format.mono')}</option>
         </select>
       </label>
 
       <label className="block text-xs font-medium text-stone-600">
-        Alignment
+        {t('format.alignment')}
         <select
           value={theme.textAlign}
           onChange={(event) => onThemeChange('textAlign', event.target.value as TextAlignment)}
           className="mt-1 h-9 w-full rounded-md border border-stone-300 bg-white px-2 text-sm"
         >
-          <option value="left">Left</option>
-          <option value="center">Center</option>
-          <option value="justify">Justify</option>
+          <option value="left">{t('format.left')}</option>
+          <option value="center">{t('format.center')}</option>
+          <option value="justify">{t('format.justify')}</option>
         </select>
       </label>
 
-      <ThemeRange label="Text Size" value={theme.fontSize} min={14} max={24} step={1} onChange={(value) => onThemeChange('fontSize', value)} />
-      <ThemeRange label="Line Spacing" value={theme.lineHeight} min={1.3} max={2.4} step={0.05} onChange={(value) => onThemeChange('lineHeight', value)} />
+      <ThemeRange label={t('format.textSize')} value={theme.fontSize} min={14} max={24} step={1} onChange={(value) => onThemeChange('fontSize', value)} />
+      <ThemeRange label={t('format.lineSpacing')} value={theme.lineHeight} min={1.3} max={2.4} step={0.05} onChange={(value) => onThemeChange('lineHeight', value)} />
       <ThemeRange
-        label="Paragraph Spacing"
+        label={t('format.paragraphSpacing')}
         value={theme.paragraphSpacing}
         min={6}
         max={32}
@@ -4559,12 +4710,13 @@ const ReadingThemePopover: React.FC<ReadingThemePopoverProps> = ({
       />
 
       <div className="grid grid-cols-2 gap-3">
-        <ThemeColor label="Background" value={theme.background} onChange={(value) => onThemeChange('background', value)} />
-        <ThemeColor label="Text" value={theme.textColor} onChange={(value) => onThemeChange('textColor', value)} />
+        <ThemeColor label={t('format.background')} value={theme.background} onChange={(value) => onThemeChange('background', value)} />
+        <ThemeColor label={t('format.text')} value={theme.textColor} onChange={(value) => onThemeChange('textColor', value)} />
       </div>
     </div>
   </div>
-);
+  );
+};
 
 interface ThemeRangeProps {
   label: string;

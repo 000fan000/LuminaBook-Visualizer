@@ -152,6 +152,7 @@ export interface KnowledgeCard {
   segmentIndex: number;
   pageSide: 'original' | 'translation';
   excerpt: string;
+  explanation?: string;
   createdAt: string;
 }
 

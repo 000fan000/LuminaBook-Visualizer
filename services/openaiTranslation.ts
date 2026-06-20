@@ -839,3 +839,41 @@ export const converseWithReadingAgent = async (
 
   return content;
 };
+
+export const defineSelectedText = async (
+  selectedText: string,
+  segment: SourceSegment,
+  translatedText: string,
+  motherLanguage: string,
+  settings: LlmSettings,
+) => {
+  if (!settings.endpoint.trim() || !settings.apiKey.trim() || !settings.model.trim()) {
+    throw new Error('Endpoint, API key, and model are required before defining selected text.');
+  }
+
+  const response = await postChatCompletion(
+    { ...settings, useJsonMode: false },
+    [
+      {
+        role: 'system',
+        content: `You are LuminaBook's concise reading companion. Explain the selected text in the reader's mother language (${motherLanguage}). Define its meaning in this exact context, note important linguistic or historical nuance, and avoid unnecessary summary. Use 2-4 short paragraphs.`,
+      },
+      {
+        role: 'user',
+        content: `Selected text:\n${selectedText}\n\nOriginal passage:\n${segment.sourceText}\n\nCurrent translation:\n${translatedText || '(not translated yet)'}`,
+      },
+    ],
+    600,
+    `define selection segment ${segment.index + 1}`,
+  );
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Define selection failed (${response.status}): ${detail.slice(0, 500)}`);
+  }
+
+  const data = (await response.json()) as ChatCompletionResponse;
+  const content = data.choices?.[0]?.message?.content?.trim();
+  if (!content) throw new Error('Define selection did not include text content.');
+  return content;
+};
