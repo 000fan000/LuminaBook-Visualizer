@@ -60,6 +60,7 @@ import {
   ReaderNote,
   ReadingProgress,
   TranslationLayout,
+  TranslationResult,
   TranslatedSegment,
   UploadedBook,
 } from './types';
@@ -266,8 +267,8 @@ const getProfileUsageSummary = (profile: LlmProfile, records: LlmEvaluationRecor
 
 const NEXT_PAGE_PREVIEW_MAX_CHARS = 700;
 const getNextPageContinuityPreview = (text: string) => {
-  const paragraphs = text
-    .replace(/\r/g, '')
+  const normalized = text.replace(/\r/g, '').trim();
+  const paragraphs = normalized
     .trim()
     .split(/\n\s*\n/)
     .map((paragraph) => paragraph.trim())
@@ -280,7 +281,13 @@ const getNextPageContinuityPreview = (text: string) => {
   const first = paragraphs[0];
   const firstWordCount = (first.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
   const firstLooksLikeHeader = paragraphs.length > 1 && first.length <= 100 && firstWordCount <= 12;
-  return (firstLooksLikeHeader ? paragraphs[1] : first).slice(0, NEXT_PAGE_PREVIEW_MAX_CHARS);
+  if (firstLooksLikeHeader) {
+    return paragraphs[1].slice(0, NEXT_PAGE_PREVIEW_MAX_CHARS);
+  }
+
+  const lines = normalized.split('\n').map((line) => line.trim()).filter(Boolean);
+  const firstLineLooksLikePdfHeader = lines.length > 1 && lines[0].length <= 100 && /\d/.test(lines[0]);
+  return (firstLineLooksLikePdfHeader ? lines.slice(1).join('\n') : first).slice(0, NEXT_PAGE_PREVIEW_MAX_CHARS);
 };
 
 const downloadJsonFile = (fileName: string, data: unknown) => {
@@ -1058,9 +1065,13 @@ const App: React.FC = () => {
     setStatusMessage(`Translating ${activeSegment.label || `page ${activeSegment.index + 1}`}...`);
 
     try {
+      const previousSegment = book.segments[activeSegmentIndex - 1];
       const nextSegment = book.segments[activeSegmentIndex + 1];
       const result = await translateSegment(activeSegment, motherLanguage, settings, {
         nextPagePreview: nextSegment ? getNextPageContinuityPreview(nextSegment.sourceText) : '',
+        consumedSourceText: previousSegment
+          ? translatedSegments[previousSegment.id]?.consumedNextSourceText || ''
+          : '',
       });
       setTranslatedSegmentsByBook((current) => ({
         ...current,
@@ -1072,6 +1083,7 @@ const App: React.FC = () => {
             layout: result.layout,
             commentary: result.commentary,
             pageGuide: result.pageGuide,
+            consumedNextSourceText: result.consumedNextSourceText,
             keyTerms: result.keyTerms || [],
             reflectionPrompt: result.reflectionPrompt,
             annotations: result.annotations || [],
@@ -1110,13 +1122,20 @@ const App: React.FC = () => {
     }
 
     try {
+      const batchResults: Record<string, TranslationResult> = {};
       for (const segment of pending) {
         setStatusMessage(`Translating ${segment.label || `page ${segment.index + 1}`}...`);
         const segmentIndex = book.segments.findIndex((item) => item.id === segment.id);
+        const previousSegment = segmentIndex > 0 ? book.segments[segmentIndex - 1] : undefined;
         const nextSegment = segmentIndex >= 0 ? book.segments[segmentIndex + 1] : undefined;
+        const previousTranslation = previousSegment
+          ? batchResults[previousSegment.id] || translatedSegments[previousSegment.id]
+          : undefined;
         const result = await translateSegment(segment, motherLanguage, settings, {
           nextPagePreview: nextSegment ? getNextPageContinuityPreview(nextSegment.sourceText) : '',
+          consumedSourceText: previousTranslation?.consumedNextSourceText || '',
         });
+        batchResults[segment.id] = result;
         setTranslatedSegmentsByBook((current) => ({
           ...current,
           [book.id]: {
@@ -1127,6 +1146,7 @@ const App: React.FC = () => {
               layout: result.layout,
               commentary: result.commentary,
               pageGuide: result.pageGuide,
+              consumedNextSourceText: result.consumedNextSourceText,
               keyTerms: result.keyTerms || [],
               reflectionPrompt: result.reflectionPrompt,
               annotations: result.annotations || [],

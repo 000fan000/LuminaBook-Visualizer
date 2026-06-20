@@ -123,6 +123,7 @@ const parseJsonContent = (content: string): TranslationResult => {
     translatedText: parsed.translatedText || layout.body,
     commentary: parsed.commentary || '',
     pageGuide: String(parsed.pageGuide || parsed.commentary || '').trim(),
+    consumedNextSourceText: String(parsed.consumedNextSourceText || '').trim(),
     keyTerms: Array.isArray(parsed.keyTerms) ? parsed.keyTerms : [],
     reflectionPrompt: parsed.reflectionPrompt || '',
     annotations,
@@ -132,6 +133,73 @@ const parseJsonContent = (content: string): TranslationResult => {
 const optionalMetadataText = (value: unknown) => {
   const text = typeof value === 'string' ? value.trim() : '';
   return text || undefined;
+};
+
+const escapeRegularExpression = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const findSuppliedSourceText = (sourceText: string, requestedText: string) => {
+  const requested = requestedText.replace(/\s+/g, ' ').trim();
+
+  if (!requested) {
+    return '';
+  }
+
+  const directIndex = sourceText.indexOf(requestedText.trim());
+  if (directIndex >= 0) {
+    return sourceText.slice(directIndex, directIndex + requestedText.trim().length);
+  }
+
+  const pattern = requested.split(/\s+/).map(escapeRegularExpression).join('\\s+');
+  return sourceText.match(new RegExp(pattern, 'u'))?.[0] || '';
+};
+
+const removeConsumedSourceText = (sourceText: string, consumedSourceText?: string) => {
+  const exact = findSuppliedSourceText(sourceText, consumedSourceText || '');
+
+  if (!exact) {
+    return sourceText;
+  }
+
+  const index = sourceText.indexOf(exact);
+  return index <= 1400 ? `${sourceText.slice(0, index)}${sourceText.slice(index + exact.length)}` : sourceText;
+};
+
+const removeUntranslatedHandoff = (translatedText: string, boundaryHandoffSourceText: string) => {
+  const exact = findSuppliedSourceText(translatedText, boundaryHandoffSourceText);
+
+  if (!exact) {
+    return translatedText;
+  }
+
+  return translatedText.replace(exact, '').replace(/\n{3,}/g, '\n\n').trim();
+};
+
+const getMainTextEnding = (sourceText: string) => {
+  const lines = sourceText.replace(/\r/g, '').split('\n').map((line) => line.trim()).filter(Boolean);
+  const lastLine = lines[lines.length - 1] || '';
+  const looksLikeFooter =
+    lastLine.length <= 100 &&
+    (/\d|[:|]/.test(lastLine) || /copyright|bibliothek|library|ebook|digital|press|publisher/i.test(lastLine));
+
+  return (looksLikeFooter ? lines.slice(0, -1) : lines).join('\n').trimEnd();
+};
+
+const getBoundaryHandoffSourceText = (targetSourceText: string, nextPagePreview?: string) => {
+  const targetEnding = getMainTextEnding(targetSourceText);
+  const preview = (nextPagePreview || '').trim();
+
+  if (!targetEnding || !preview || /[.!?。！？]["'”’»\])}]*\s*$/u.test(targetEnding)) {
+    return '';
+  }
+
+  const Segmenter = (Intl as unknown as { Segmenter?: new (locale?: string, options?: { granularity: string }) => {
+    segment: (text: string) => Iterable<{ segment: string }>;
+  } }).Segmenter;
+  const firstSentence = Segmenter
+    ? Array.from(new Segmenter(undefined, { granularity: 'sentence' }).segment(preview))[0]?.segment.trim()
+    : preview.match(/^[\s\S]*?[.!?。！？](?=\s|$)/u)?.[0].trim();
+
+  return firstSentence && /[.!?。！？]["'”’»\])}]*\s*$/u.test(firstSentence) ? firstSentence : '';
 };
 
 export const detectBookMetadata = async (
@@ -519,12 +587,15 @@ export const translateSegment = async (
   settings: LlmSettings,
   continuity?: {
     nextPagePreview?: string;
+    consumedSourceText?: string;
   },
 ): Promise<TranslationResult> => {
   if (!settings.endpoint.trim() || !settings.apiKey.trim() || !settings.model.trim()) {
     throw new Error('Endpoint, API key, and model are required before translation.');
   }
 
+  const targetSourceText = removeConsumedSourceText(segment.sourceText, continuity?.consumedSourceText);
+  const boundaryHandoffSourceText = getBoundaryHandoffSourceText(targetSourceText, continuity?.nextPagePreview);
   const response = await postChatCompletion(
     settings,
     [
@@ -536,18 +607,20 @@ export const translateSegment = async (
         role: 'user',
         content: `Translate ONLY the text inside <target_segment> into ${motherLanguage}.
 
-Critical boundary rules:
-- <target_segment> is the only source text that may appear in translatedText or layout.
-- <continuity_reference> contains a short opening from the next page solely to resolve syntax, pronouns, and word sense at the end of <target_segment>.
-- Never translate, quote, summarize, paraphrase, or output <continuity_reference>. No word, clause, proposition, event, or detail found only there may appear in translatedText or layout.
-- Translate only the words physically present before </target_segment>. Stop at the same semantic boundary even if the page ends with an incomplete clause, sentence, quotation, or thought.
-- Every idea expressed in translatedText and layout.body must be traceable to words physically present inside <target_segment>.
+Boundary handoff rules:
+- Translate all text inside <target_segment>.
+- <boundary_handoff> has already been computed deterministically. When it is not "(none)", append its meaning once to finish the final sentence of <target_segment>.
+- Never translate beyond <boundary_handoff>, and never repeat its meaning as a separate sentence or fragment.
+- consumedNextSourceText is metadata only: copy <boundary_handoff> exactly into that JSON field, or return an empty string when it is "(none)".
+- Never copy source-language text from <boundary_handoff> into translatedText or layout.body; include only its translated meaning there.
+- commentary, pageGuide, keyTerms, reflectionPrompt, annotations, layout.header, layout.title, layout.notes, and layout.footer must use only <target_segment>.
 
 Return JSON with exactly these fields:
 - translatedText: faithful literary translation into the reader's mother language
 - layout: object with header, title, body, notes, footer
 - commentary: contextual explanation that helps recover meaning lost in translation
 - pageGuide: one self-contained remark about the current page as a whole
+- consumedNextSourceText: exact contents of boundary_handoff when present, otherwise empty string
 - keyTerms: array of up to 5 objects with term and explanation
 - reflectionPrompt: one question that helps the reader compare source and translation
 - annotations: array of up to 6 objects with sourceText, title, body, and kind
@@ -583,8 +656,8 @@ layout rules:
 - body: main translated content with paragraph and line breaks preserved
 - notes: array of translated footnotes, endnotes, marginal notes, or translator notes from this segment
 - footer: translated or copied page footer/page number, empty string if none
-- translatedText must combine only translated <target_segment> content into a readable fallback plain text with visible line breaks.
-- translatedText and layout.body must stop exactly where <target_segment> stops; never make the final sentence more complete than the source fragment on this page
+- translatedText must combine translated <target_segment> content plus only the approved boundary handoff into readable fallback text with visible line breaks.
+- translatedText and layout.body must end after the completed boundary sentence, never after additional next-page content
 
 Formatting rules for translatedText:
 - Preserve title lines, headings, paragraph breaks, numbered lists, stanza breaks, and visible line breaks from the source as much as possible.
@@ -595,19 +668,19 @@ Formatting rules for translatedText:
 - Return newline characters inside the JSON string, not HTML.
 
 Source language hint: ${segment.sourceLanguage}
-<continuity_reference source="next_page_opening" output_policy="never">
-${continuity?.nextPagePreview || '(none)'}
-</continuity_reference>
+<boundary_handoff source="next_page_opening" output_policy="append_once">
+${boundaryHandoffSourceText || '(none)'}
+</boundary_handoff>
 
 <target_segment index="${segment.index + 1}" label="${segment.label || `Segment ${segment.index + 1}`}">
-${segment.sourceText}
+${targetSourceText}
 </target_segment>
 
 Final boundary audit before returning JSON:
-1. Identify the last word or punctuation physically inside <target_segment>.
-2. Ensure translatedText and layout.body stop at its meaning without completing an unfinished thought.
-3. Place a running header only in layout.header.
-4. Remove anything supported only by <continuity_reference>; it must be translated when the next page itself becomes the target, never here.`,
+1. If <boundary_handoff> is present, finish the target's final sentence with it exactly once.
+2. Verify consumedNextSourceText exactly matches <boundary_handoff> or is empty when no handoff is present.
+3. Ensure no consumed prefix is translated more than once in this response.
+4. Place a running header only in layout.header and exclude it from consumedNextSourceText.`,
       },
     ],
     undefined,
@@ -626,7 +699,21 @@ Final boundary audit before returning JSON:
     throw new Error('Translation response did not include message content.');
   }
 
-  return parseJsonContent(content);
+  const parsed = parseJsonContent(content);
+  const translatedText = removeUntranslatedHandoff(parsed.translatedText, boundaryHandoffSourceText);
+  const layout = parsed.layout
+    ? {
+        ...parsed.layout,
+        body: removeUntranslatedHandoff(parsed.layout.body, boundaryHandoffSourceText),
+      }
+    : parsed.layout;
+
+  return {
+    ...parsed,
+    translatedText,
+    layout,
+    consumedNextSourceText: boundaryHandoffSourceText,
+  };
 };
 
 export const testLlmSettings = async (settings: LlmSettings) => {
