@@ -138,7 +138,7 @@ const STORAGE_KEYS = {
 
 type TextAlignment = 'left' | 'center' | 'justify';
 type TextFont = 'serif' | 'sans' | 'mono';
-type RightPaneMode = 'translation' | 'notes' | 'annotation';
+type RightPaneMode = 'translation' | 'notes' | 'guide';
 
 interface ReadingTheme {
   id: string;
@@ -1068,6 +1068,7 @@ const App: React.FC = () => {
             translatedText: result.translatedText,
             layout: result.layout,
             commentary: result.commentary,
+            pageGuide: result.pageGuide,
             keyTerms: result.keyTerms || [],
             reflectionPrompt: result.reflectionPrompt,
             annotations: result.annotations || [],
@@ -1118,6 +1119,7 @@ const App: React.FC = () => {
               translatedText: result.translatedText,
               layout: result.layout,
               commentary: result.commentary,
+              pageGuide: result.pageGuide,
               keyTerms: result.keyTerms || [],
               reflectionPrompt: result.reflectionPrompt,
               annotations: result.annotations || [],
@@ -2153,8 +2155,6 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             pdfPage={activeSegment.firstPage}
             readingTheme={book.fileType === 'pdf' ? undefined : sourceReadingTheme}
             readingThemes={readingThemes}
-            highlights={highlights.filter((highlight) => highlight.pageSide === 'original')}
-            knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'original')}
             annotations={annotationCards}
             hoverHighlightText={hoveredNoteSourceText}
             onAddHighlight={() => onAddHighlight('original')}
@@ -2173,9 +2173,8 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             mode={rightPaneMode}
             note={note}
             pageLabel={getSourcePageLabel(activeSegment)}
-            highlights={highlights.filter((highlight) => highlight.pageSide === 'translation')}
-            knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'translation')}
-            annotations={annotationCards}
+            highlights={highlights}
+            knowledgeCards={knowledgeCards}
             onModeChange={onRightPaneModeChange}
             onHoverNoteSource={onHoverNoteSource}
             onThemeChange={onTranslationThemeChange}
@@ -2586,8 +2585,6 @@ interface BookPageProps {
   pdfPage?: number;
   readingTheme?: ReadingTheme;
   readingThemes: ReadingTheme[];
-  highlights: Highlight[];
-  knowledgeCards: KnowledgeCard[];
   annotations: AnnotationCard[];
   hoverHighlightText?: string;
   onAddHighlight: () => void;
@@ -2628,15 +2625,15 @@ const AnnotationCardContent: React.FC<AnnotationCardContentProps> = ({ annotatio
         <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-stone-900 px-1 text-[10px] font-semibold text-white">
           {index + 1}
         </span>
-        <h3 className="text-sm font-semibold leading-5 text-stone-900">{annotation.title}</h3>
+        <h3 className="text-sm font-semibold leading-5 text-stone-900">{annotation.sourceText}</h3>
       </div>
       <span className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${ANNOTATION_KIND_STYLES[annotation.kind]}`}>
         {ANNOTATION_KIND_LABELS[annotation.kind]}
       </span>
     </div>
-    <blockquote className="mt-3 border-l-2 border-amber-400 pl-3 font-serif text-sm italic leading-5 text-stone-700">
-      {annotation.sourceText}
-    </blockquote>
+    <div className="mt-3 border-l-2 border-amber-400 pl-3 font-serif text-sm italic leading-5 text-stone-700">
+      {annotation.title}
+    </div>
     <p className="mt-3 text-sm leading-6 text-stone-700">{annotation.body}</p>
   </>
 );
@@ -2656,8 +2653,6 @@ const BookPage: React.FC<BookPageProps> = ({
   pdfPage,
   readingTheme,
   readingThemes,
-  highlights,
-  knowledgeCards,
   annotations,
   hoverHighlightText = '',
   onAddHighlight,
@@ -2759,26 +2754,6 @@ const BookPage: React.FC<BookPageProps> = ({
       className="-mx-3 mt-8 min-h-24 border-t border-stone-300 bg-stone-50/70 px-3 pt-5 text-stone-500 md:-mx-5 md:px-5"
       style={sectionStyle}
     >
-      {highlights.length > 0 && (
-        <div className="mb-4 space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Highlights</p>
-          {highlights.map((highlight) => (
-            <p key={highlight.id} className="rounded-sm bg-yellow-100 px-2 py-1 text-xs leading-5 text-stone-700">
-              {highlight.text}
-            </p>
-          ))}
-        </div>
-      )}
-      {knowledgeCards.length > 0 && (
-        <div className="mb-4 space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Knowledge Cards</p>
-          {knowledgeCards.map((card) => (
-            <p key={card.id} className="rounded-sm border border-stone-200 bg-white px-2 py-1 text-xs leading-5 text-stone-700">
-              {card.excerpt}
-            </p>
-          ))}
-        </div>
-      )}
       {footnotes.length ? (
         <ol className="space-y-2 text-xs leading-5 text-stone-600">
           {footnotes.map((note, index) => (
@@ -2810,7 +2785,6 @@ interface RightReaderPaneProps {
   pageLabel: string;
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
-  annotations: AnnotationCard[];
   onModeChange: (mode: RightPaneMode) => void;
   onHoverNoteSource: (text: string) => void;
   onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
@@ -2835,7 +2809,6 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   pageLabel,
   highlights,
   knowledgeCards,
-  annotations,
   onModeChange,
   onHoverNoteSource,
   onThemeChange,
@@ -2861,7 +2834,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
     <div className="mb-6 flex items-center justify-between gap-3 border-b border-stone-200 pb-4">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
-          {mode === 'translation' ? `Translation · ${motherLanguage}` : mode === 'notes' ? 'Notes' : 'Annotation'}
+          {mode === 'translation' ? `Translation · ${motherLanguage}` : mode === 'notes' ? 'Notes' : 'GUIDE'}
         </p>
         <h2 className="mt-1 text-sm font-medium text-stone-700">
           {mode === 'translation'
@@ -2870,12 +2843,12 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
               : 'Waiting for translation'
             : mode === 'notes'
               ? 'Reader notebook'
-              : 'Anchored annotations and reader marks'}
+              : 'Whole-page reading perspective'}
         </h2>
       </div>
       <div className="flex items-center gap-2">
         <div className="flex rounded-md border border-stone-300 bg-[#f7f3ea] p-1">
-          {(['translation', 'notes', 'annotation'] as const).map((item) => (
+          {(['translation', 'notes', 'guide'] as const).map((item) => (
             <button
               key={item}
               onClick={() => onModeChange(item)}
@@ -2883,7 +2856,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
                 mode === item ? 'bg-stone-950 text-white' : 'text-stone-600 hover:bg-stone-200'
               }`}
             >
-              {item === 'annotation' ? 'Annotation' : item}
+              {item === 'guide' ? 'GUIDE' : item}
             </button>
           ))}
         </div>
@@ -2958,9 +2931,8 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
         </div>
       </div>
     ) : (
-      <AnnotationView
+      <GuideView
         activeTranslation={activeTranslation}
-        annotations={annotations}
         highlights={highlights}
         knowledgeCards={knowledgeCards}
         noteResponse={note?.llmResponse || ''}
@@ -2972,9 +2944,8 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   );
 };
 
-interface AnnotationViewProps {
+interface GuideViewProps {
   activeTranslation: TranslatedSegment | null;
-  annotations: AnnotationCard[];
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
   noteResponse: string;
@@ -2982,9 +2953,8 @@ interface AnnotationViewProps {
   onHoverNoteSource: (text: string) => void;
 }
 
-const AnnotationView: React.FC<AnnotationViewProps> = ({
+const GuideView: React.FC<GuideViewProps> = ({
   activeTranslation,
-  annotations,
   highlights,
   knowledgeCards,
   noteResponse,
@@ -2994,27 +2964,13 @@ const AnnotationView: React.FC<AnnotationViewProps> = ({
   <div className="flex-1 overflow-y-auto">
     <div className="space-y-5">
       <section>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Annotation Cards</p>
-        {annotations.length > 0 ? (
-          <div className="mt-3 grid gap-3">
-            {annotations.map((annotation, index) => (
-              <article
-                key={annotation.id}
-                tabIndex={0}
-                onMouseEnter={() => onHoverNoteSource(annotation.sourceText)}
-                onMouseLeave={() => onHoverNoteSource('')}
-                onFocus={() => onHoverNoteSource(annotation.sourceText)}
-                onBlur={() => onHoverNoteSource('')}
-                className="rounded-md border border-stone-200 bg-white p-3 text-left shadow-sm outline-none transition hover:border-amber-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-200"
-              >
-                <AnnotationCardContent annotation={annotation} index={index} />
-              </article>
-            ))}
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Page Remark</p>
+        {activeTranslation ? (
+          <div className="mt-3 rounded-sm border border-stone-200 bg-white p-4 font-serif text-base leading-7 text-stone-700 shadow-sm">
+            {activeTranslation.pageGuide || activeTranslation.commentary || 'No page guide was generated.'}
           </div>
         ) : (
-          <p className="mt-3 text-sm italic text-stone-400">
-            {activeTranslation ? 'No anchored annotations were generated for this page.' : 'No annotations yet.'}
-          </p>
+          <p className="mt-3 text-sm italic text-stone-400">Translate this page to generate its reading guide.</p>
         )}
       </section>
 
@@ -3029,7 +2985,7 @@ const AnnotationView: React.FC<AnnotationViewProps> = ({
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-sm italic text-stone-400">No translation highlights on this page.</p>
+          <p className="mt-3 text-sm italic text-stone-400">No highlights on this page.</p>
         )}
       </section>
 
@@ -3044,7 +3000,7 @@ const AnnotationView: React.FC<AnnotationViewProps> = ({
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-sm italic text-stone-400">No translation knowledge cards on this page.</p>
+          <p className="mt-3 text-sm italic text-stone-400">No knowledge cards on this page.</p>
         )}
       </section>
 
@@ -3651,6 +3607,7 @@ const buildReadingLayoutLines = (text: string, sourceText?: string, formatPageFr
 };
 
 const getSubduedTextColor = (theme?: ReadingTheme) => (theme?.id === 'night' ? '#a8a29e' : '#57534e');
+const getPageFrameTextColor = () => '#a8a29e';
 const getPageFrameSeparatorColor = (theme?: ReadingTheme) => (theme?.id === 'night' ? '#57534e' : '#d6d3d1');
 const getPageFrameBackground = (theme?: ReadingTheme) => (theme?.id === 'night' ? 'rgba(87, 83, 78, 0.18)' : 'rgba(245, 245, 244, 0.72)');
 
@@ -3711,11 +3668,11 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
             return (
               <div
                 key={`${line.text}-${index}`}
-                className="-mx-2 mb-6 border-b border-stone-300 bg-stone-100/70 px-2 pb-3 pt-1 text-center text-[0.74em] font-medium leading-5 text-stone-600"
+                className="-mx-2 mb-6 border-b border-stone-300 bg-stone-100/70 px-2 pb-3 pt-1 text-center text-[0.74em] font-medium leading-5 text-stone-400"
                 style={
                   theme
                     ? {
-                        color: getSubduedTextColor(theme),
+                        color: getPageFrameTextColor(),
                         textAlign: 'center',
                         borderColor: getPageFrameSeparatorColor(theme),
                         backgroundColor: getPageFrameBackground(theme),
@@ -3732,11 +3689,11 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
             return (
               <div
                 key={`${line.text}-${index}`}
-                className="-mx-2 mt-7 border-t border-stone-300 bg-stone-100/70 px-2 pb-1 pt-3 text-center text-[0.74em] leading-5 text-stone-600"
+                className="-mx-2 mt-7 border-t border-stone-300 bg-stone-100/70 px-2 pb-1 pt-3 text-center text-[0.74em] leading-5 text-stone-400"
                 style={
                   theme
                     ? {
-                        color: getSubduedTextColor(theme),
+                        color: getPageFrameTextColor(),
                         textAlign: 'center',
                         borderColor: getPageFrameSeparatorColor(theme),
                         backgroundColor: getPageFrameBackground(theme),
@@ -3783,11 +3740,11 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
   <>
     {layout.header?.trim() && (
       <div
-        className="-mx-2 mb-6 border-b border-stone-300 bg-stone-100/70 px-2 pb-3 pt-1 text-center text-[0.74em] font-medium leading-5 text-stone-600"
+        className="-mx-2 mb-6 border-b border-stone-300 bg-stone-100/70 px-2 pb-3 pt-1 text-center text-[0.74em] font-medium leading-5 text-stone-400"
         style={
           theme
             ? {
-                color: getSubduedTextColor(theme),
+                color: getPageFrameTextColor(),
                 textAlign: 'center',
                 borderColor: getPageFrameSeparatorColor(theme),
                 backgroundColor: getPageFrameBackground(theme),
@@ -3848,11 +3805,11 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
 
     {layout.footer?.trim() && (
       <div
-        className="-mx-2 mt-7 border-t border-stone-300 bg-stone-100/70 px-2 pb-1 pt-3 text-center text-[0.74em] leading-5 text-stone-600"
+        className="-mx-2 mt-7 border-t border-stone-300 bg-stone-100/70 px-2 pb-1 pt-3 text-center text-[0.74em] leading-5 text-stone-400"
         style={
           theme
             ? {
-                color: getSubduedTextColor(theme),
+                color: getPageFrameTextColor(),
                 textAlign: 'center',
                 borderColor: getPageFrameSeparatorColor(theme),
                 backgroundColor: getPageFrameBackground(theme),

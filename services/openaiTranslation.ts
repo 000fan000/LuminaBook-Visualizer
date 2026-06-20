@@ -122,6 +122,7 @@ const parseJsonContent = (content: string): TranslationResult => {
     layout,
     translatedText: parsed.translatedText || layout.body,
     commentary: parsed.commentary || '',
+    pageGuide: String(parsed.pageGuide || parsed.commentary || '').trim(),
     keyTerms: Array.isArray(parsed.keyTerms) ? parsed.keyTerms : [],
     reflectionPrompt: parsed.reflectionPrompt || '',
     annotations,
@@ -550,6 +551,7 @@ Return JSON with exactly these fields:
 - translatedText: faithful literary translation into the reader's mother language
 - layout: object with header, title, body, notes, footer
 - commentary: contextual explanation that helps recover meaning lost in translation
+- pageGuide: one self-contained remark about the current page as a whole, informed by previous and next context
 - keyTerms: array of up to 5 objects with term and explanation
 - reflectionPrompt: one question that helps the reader compare source and translation
 - annotations: array of up to 6 objects with sourceText, title, body, and kind
@@ -559,11 +561,23 @@ annotation rules:
 - sourceText should normally contain 1 to 6 words and must never be a full sentence
 - sourceText must stay within one source line and must not contain line breaks
 - never use text from <previous_context> or <next_context> as an annotation sourceText
-- title is a short annotation heading
-- body is a concise explanation of the term, context, ambiguity, translation choice, or reflection
+- sourceText is only a precise anchor for highlighting; do not merely define, translate, or restate it in the annotation
+- title is a specific interpretive heading, not a repetition of sourceText
+- body must be grounded in how the anchored phrase functions in this particular passage, using surrounding target context and adjacent context when useful
+- body should add one focused implication, tension, connection, or interpretive inference, then give a concrete reading cue about what distinction, pattern, question, or development to watch for as the text continues
+- distinguish textual evidence from inference with language such as "suggests" or "may foreshadow"; do not invent authorial intent, plot facts, or historical claims unsupported by the supplied text
+- prefer 2 concise sentences and avoid generic dictionary definitions, broad thematic summaries, and advice that could apply to any passage
 - kind must be one of: term, context, translation, reflection
-- prioritize phrases where historical context, ambiguity, metaphor, syntax, or translation loss matters
+- prioritize phrases whose local context supports historical context, ambiguity, metaphor, syntax, translation loss, conceptual development, or a useful forward-reading question
 - omit any annotation that cannot be anchored to an exact sourceText quote
+
+pageGuide rules:
+- discuss the current page as a whole rather than annotating individual words, phrases, or lines
+- use <previous_context> and <next_context> to understand how this page continues an earlier idea and prepares what follows
+- center the remark on the current page; adjacent context may inform the interpretation but must not become a summary of another page
+- explain the page's role in the developing argument, narrative, image, or structure, then give the reader a concrete question or pattern to carry forward
+- write one focused paragraph of 3 to 5 sentences in ${motherLanguage}
+- do not quote isolated source words, list vocabulary, use annotation-style headings, mention page boundaries or XML tags, or claim facts unsupported by the supplied text
 
 layout rules:
 - header: translated or copied running header/page header, empty string if none

@@ -46,6 +46,7 @@ export interface TranslatedSegment extends SourceSegment {
   translatedText: string;
   layout?: TranslationLayout;
   commentary: string;
+  pageGuide?: string;
   keyTerms: KeyTerm[];
   reflectionPrompt: string;
   annotations: LlmAnnotation[];
@@ -89,6 +90,7 @@ export interface TranslationResult {
   translatedText: string;
   layout?: TranslationLayout;
   commentary: string;
+  pageGuide: string;
   keyTerms: KeyTerm[];
   reflectionPrompt: string;
   annotations: LlmAnnotation[];
