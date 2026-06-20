@@ -517,11 +517,8 @@ export const translateSegment = async (
   segment: SourceSegment,
   motherLanguage: string,
   settings: LlmSettings,
-  context?: {
-    previousLabel?: string;
-    previousText?: string;
-    nextLabel?: string;
-    nextText?: string;
+  continuity?: {
+    nextPagePreview?: string;
   },
 ): Promise<TranslationResult> => {
   if (!settings.endpoint.trim() || !settings.apiKey.trim() || !settings.model.trim()) {
@@ -541,17 +538,16 @@ export const translateSegment = async (
 
 Critical boundary rules:
 - <target_segment> is the only source text that may appear in translatedText or layout.
-- <previous_context> and <next_context> are reference material only. They help you understand incomplete sentences, pronouns, concepts, and paragraph flow across page boundaries.
-- Never translate, summarize, quote, copy, paraphrase, or include content from <previous_context> or <next_context> in translatedText or layout.
-- Never include boundary labels such as "Previous context", "Next context", "for continuity only", "后文", "前文", page labels, or XML tag names in translatedText or layout.
-- If a sentence begins in <previous_context> and continues in <target_segment>, translate only the part that is present in <target_segment>, using the previous context only to choose accurate wording.
-- If a sentence begins in <target_segment> and continues in <next_context>, translate only the part that is present in <target_segment>, using the next context only to avoid mistranslation.
+- <continuity_reference> contains a short opening from the next page solely to resolve syntax, pronouns, and word sense at the end of <target_segment>.
+- Never translate, quote, summarize, paraphrase, or output <continuity_reference>. No word, clause, proposition, event, or detail found only there may appear in translatedText or layout.
+- Translate only the words physically present before </target_segment>. Stop at the same semantic boundary even if the page ends with an incomplete clause, sentence, quotation, or thought.
+- Every idea expressed in translatedText and layout.body must be traceable to words physically present inside <target_segment>.
 
 Return JSON with exactly these fields:
 - translatedText: faithful literary translation into the reader's mother language
 - layout: object with header, title, body, notes, footer
 - commentary: contextual explanation that helps recover meaning lost in translation
-- pageGuide: one self-contained remark about the current page as a whole, informed by previous and next context
+- pageGuide: one self-contained remark about the current page as a whole
 - keyTerms: array of up to 5 objects with term and explanation
 - reflectionPrompt: one question that helps the reader compare source and translation
 - annotations: array of up to 6 objects with sourceText, title, body, and kind
@@ -560,10 +556,9 @@ annotation rules:
 - sourceText must be an exact term or short phrase copied from <target_segment>, between 2 and 40 characters
 - sourceText should normally contain 1 to 6 words and must never be a full sentence
 - sourceText must stay within one source line and must not contain line breaks
-- never use text from <previous_context> or <next_context> as an annotation sourceText
 - sourceText is only a precise anchor for highlighting; do not merely define, translate, or restate it in the annotation
 - title is a specific interpretive heading, not a repetition of sourceText
-- body must be grounded in how the anchored phrase functions in this particular passage, using surrounding target context and adjacent context when useful
+- body must be grounded in how the anchored phrase functions in this particular target passage
 - body should add one focused implication, tension, connection, or interpretive inference, then give a concrete reading cue about what distinction, pattern, question, or development to watch for as the text continues
 - distinguish textual evidence from inference with language such as "suggests" or "may foreshadow"; do not invent authorial intent, plot facts, or historical claims unsupported by the supplied text
 - prefer 2 concise sentences and avoid generic dictionary definitions, broad thematic summaries, and advice that could apply to any passage
@@ -573,19 +568,23 @@ annotation rules:
 
 pageGuide rules:
 - discuss the current page as a whole rather than annotating individual words, phrases, or lines
-- use <previous_context> and <next_context> to understand how this page continues an earlier idea and prepares what follows
-- center the remark on the current page; adjacent context may inform the interpretation but must not become a summary of another page
+- use only <target_segment>; do not speculate about content before or after this page
+- center the remark on the current page
 - explain the page's role in the developing argument, narrative, image, or structure, then give the reader a concrete question or pattern to carry forward
 - write one focused paragraph of 3 to 5 sentences in ${motherLanguage}
 - do not quote isolated source words, list vocabulary, use annotation-style headings, mention page boundaries or XML tags, or claim facts unsupported by the supplied text
 
 layout rules:
-- header: translated or copied running header/page header, empty string if none
+- infer the page structure only from <target_segment>
+- header: the running header/page header from the top of <target_segment>, copied exactly in its source language; empty string only when the target page genuinely has no running header
+- treat a short isolated top line naming the book, author, chapter, or section as a likely running header
+- never translate the running header, never leave it in layout.body, and never duplicate it elsewhere in layout
 - title: translated standalone title or section heading, empty string if none
 - body: main translated content with paragraph and line breaks preserved
 - notes: array of translated footnotes, endnotes, marginal notes, or translator notes from this segment
 - footer: translated or copied page footer/page number, empty string if none
 - translatedText must combine only translated <target_segment> content into a readable fallback plain text with visible line breaks.
+- translatedText and layout.body must stop exactly where <target_segment> stops; never make the final sentence more complete than the source fragment on this page
 
 Formatting rules for translatedText:
 - Preserve title lines, headings, paragraph breaks, numbered lists, stanza breaks, and visible line breaks from the source as much as possible.
@@ -596,17 +595,19 @@ Formatting rules for translatedText:
 - Return newline characters inside the JSON string, not HTML.
 
 Source language hint: ${segment.sourceLanguage}
+<continuity_reference source="next_page_opening" output_policy="never">
+${continuity?.nextPagePreview || '(none)'}
+</continuity_reference>
+
 <target_segment index="${segment.index + 1}" label="${segment.label || `Segment ${segment.index + 1}`}">
 ${segment.sourceText}
 </target_segment>
 
-<previous_context label="${context?.previousLabel || 'none'}" purpose="reference only; do not translate or output">
-${context?.previousText || '(none)'}
-</previous_context>
-
-<next_context label="${context?.nextLabel || 'none'}" purpose="reference only; do not translate or output">
-${context?.nextText || '(none)'}
-</next_context>`,
+Final boundary audit before returning JSON:
+1. Identify the last word or punctuation physically inside <target_segment>.
+2. Ensure translatedText and layout.body stop at its meaning without completing an unfinished thought.
+3. Place a running header only in layout.header.
+4. Remove anything supported only by <continuity_reference>; it must be translated when the next page itself becomes the target, never here.`,
       },
     ],
     undefined,

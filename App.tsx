@@ -264,16 +264,23 @@ const getProfileUsageSummary = (profile: LlmProfile, records: LlmEvaluationRecor
   };
 };
 
-const CONTEXT_WINDOW_CHARS = 900;
-const CONTEXT_OPENING_CHARS = 320;
-const getTrailingContext = (text: string) => text.slice(Math.max(0, text.length - CONTEXT_WINDOW_CHARS));
-const getLeadingContext = (text: string) => text.slice(0, CONTEXT_WINDOW_CHARS);
-const getPreviousPageContext = (text: string) => {
-  if (text.length <= CONTEXT_WINDOW_CHARS) {
-    return text;
+const NEXT_PAGE_PREVIEW_MAX_CHARS = 700;
+const getNextPageContinuityPreview = (text: string) => {
+  const paragraphs = text
+    .replace(/\r/g, '')
+    .trim()
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  if (!paragraphs.length) {
+    return '';
   }
 
-  return `[page opening for header comparison]\n${text.slice(0, CONTEXT_OPENING_CHARS)}\n\n[page ending for sentence continuity]\n${getTrailingContext(text)}`;
+  const first = paragraphs[0];
+  const firstWordCount = (first.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
+  const firstLooksLikeHeader = paragraphs.length > 1 && first.length <= 100 && firstWordCount <= 12;
+  return (firstLooksLikeHeader ? paragraphs[1] : first).slice(0, NEXT_PAGE_PREVIEW_MAX_CHARS);
 };
 
 const downloadJsonFile = (fileName: string, data: unknown) => {
@@ -1039,23 +1046,6 @@ const App: React.FC = () => {
     setErrorMessage('');
   };
 
-  const getSegmentTranslationContext = (segment: UploadedBook['segments'][number]) => {
-    if (!book) {
-      return {};
-    }
-
-    const segmentIndex = book.segments.findIndex((item) => item.id === segment.id);
-    const previous = segmentIndex > 0 ? book.segments[segmentIndex - 1] : null;
-    const next = segmentIndex >= 0 && segmentIndex < book.segments.length - 1 ? book.segments[segmentIndex + 1] : null;
-
-    return {
-      previousLabel: previous ? getSourcePageLabel(previous) : '',
-      previousText: previous ? getPreviousPageContext(previous.sourceText) : '',
-      nextLabel: next ? getSourcePageLabel(next) : '',
-      nextText: next ? getLeadingContext(next.sourceText) : '',
-    };
-  };
-
   const translateCurrent = async () => {
     if (!activeSegment) {
       return;
@@ -1068,7 +1058,10 @@ const App: React.FC = () => {
     setStatusMessage(`Translating ${activeSegment.label || `page ${activeSegment.index + 1}`}...`);
 
     try {
-      const result = await translateSegment(activeSegment, motherLanguage, settings, getSegmentTranslationContext(activeSegment));
+      const nextSegment = book.segments[activeSegmentIndex + 1];
+      const result = await translateSegment(activeSegment, motherLanguage, settings, {
+        nextPagePreview: nextSegment ? getNextPageContinuityPreview(nextSegment.sourceText) : '',
+      });
       setTranslatedSegmentsByBook((current) => ({
         ...current,
         [book.id]: {
@@ -1119,7 +1112,11 @@ const App: React.FC = () => {
     try {
       for (const segment of pending) {
         setStatusMessage(`Translating ${segment.label || `page ${segment.index + 1}`}...`);
-        const result = await translateSegment(segment, motherLanguage, settings, getSegmentTranslationContext(segment));
+        const segmentIndex = book.segments.findIndex((item) => item.id === segment.id);
+        const nextSegment = segmentIndex >= 0 ? book.segments[segmentIndex + 1] : undefined;
+        const result = await translateSegment(segment, motherLanguage, settings, {
+          nextPagePreview: nextSegment ? getNextPageContinuityPreview(nextSegment.sourceText) : '',
+        });
         setTranslatedSegmentsByBook((current) => ({
           ...current,
           [book.id]: {
