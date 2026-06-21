@@ -89,17 +89,41 @@ const MOTHER_LANGUAGES = [
   'Русский',
 ];
 
+const PLATFORM_PROFILE_ID = 'platform-free-qwen';
+
 const DEFAULT_SETTINGS: LlmSettings = {
-  profileId: 'default-openai',
-  profileName: 'OpenAI gpt-4.1-mini',
-  provider: 'openai',
-  endpoint: 'https://api.openai.com',
+  profileId: PLATFORM_PROFILE_ID,
+  profileName: PLATFORM_PROVIDER_LABEL,
+  provider: PLATFORM_PROVIDER_ID,
+  endpoint: '/api/llm',
   apiKey: '',
-  model: 'gpt-4.1-mini',
+  model: PLATFORM_PROVIDER_MODEL,
   temperature: 0.3,
   useJsonMode: true,
   requestTimeoutMs: 600_000,
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
+};
+
+const createPlatformProfile = (profile?: Partial<LlmProfile>): LlmProfile => {
+  const now = new Date().toISOString();
+
+  return {
+    ...DEFAULT_SETTINGS,
+    id: PLATFORM_PROFILE_ID,
+    name: PLATFORM_PROVIDER_LABEL,
+    profileId: PLATFORM_PROFILE_ID,
+    profileName: PLATFORM_PROVIDER_LABEL,
+    createdAt: profile?.createdAt || now,
+    updatedAt: profile?.updatedAt || now,
+  };
+};
+
+const isPlatformProfile = (profile: Partial<LlmProfile>) =>
+  profile.id === PLATFORM_PROFILE_ID || profile.provider === PLATFORM_PROVIDER_ID;
+
+const ensurePlatformProfile = (profiles: LlmProfile[]) => {
+  const existing = profiles.find(isPlatformProfile);
+  return [createPlatformProfile(existing), ...profiles.filter((profile) => !isPlatformProfile(profile))];
 };
 
 const normalizeLlmSettings = (settings: LlmSettings): LlmSettings => ({
@@ -227,9 +251,13 @@ const writeStorage = (key: string, value: unknown) => {
 
 const getInitialLlmProfileState = () => {
   const savedProfiles = readStorage<LlmProfile[]>(STORAGE_KEYS.llmProfiles, []);
-  const initialProfiles = savedProfiles.length ? savedProfiles : [createProfileFromSettings(DEFAULT_SETTINGS)];
+  const hadPlatformProfile = savedProfiles.some(isPlatformProfile);
+  const initialProfiles = ensurePlatformProfile(savedProfiles);
   const savedActiveProfileId = readStorage<string>(STORAGE_KEYS.activeLlmProfileId, initialProfiles[0].id);
-  const activeProfile = initialProfiles.find((profile) => profile.id === savedActiveProfileId) || initialProfiles[0];
+  const savedActiveProfile = savedProfiles.find((profile) => profile.id === savedActiveProfileId);
+  const activeProfile = hadPlatformProfile && savedActiveProfile && !isPlatformProfile(savedActiveProfile)
+    ? initialProfiles.find((profile) => profile.id === savedActiveProfileId) || initialProfiles[0]
+    : initialProfiles[0];
 
   return {
     profiles: initialProfiles,
@@ -314,6 +342,10 @@ const downloadJsonFile = (fileName: string, data: unknown) => {
 };
 
 const normalizeImportedProfile = (profile: Partial<LlmProfile>, fallbackIndex: number): LlmProfile => {
+  if (isPlatformProfile(profile)) {
+    return createPlatformProfile(profile);
+  }
+
   const now = new Date().toISOString();
   const id = profile.id || profile.profileId || `imported-profile-${Date.now()}-${fallbackIndex}`;
   const name = profile.name || profile.profileName || `${profile.provider || DEFAULT_SETTINGS.provider} ${profile.model || DEFAULT_SETTINGS.model}`;
@@ -448,11 +480,16 @@ const App: React.FC = () => {
     }
 
     setActiveLlmProfileId(profile.id);
-    setSettings(normalizeLlmSettings(profile));
+    setSettings(normalizeLlmSettings(isPlatformProfile(profile) ? createPlatformProfile(profile) : profile));
     setProviderStatus('');
   };
 
   const saveCurrentLlmProfile = () => {
+    if (settings.provider === PLATFORM_PROVIDER_ID) {
+      setStatusMessage(`${PLATFORM_PROVIDER_LABEL} is managed by the platform and does not need saving.`);
+      return;
+    }
+
     const normalized = normalizeLlmSettings(settings);
     const now = new Date().toISOString();
     const existing = llmProfiles.find((profile) => profile.id === normalized.profileId);
@@ -478,6 +515,10 @@ const App: React.FC = () => {
   };
 
   const persistActiveLlmProfile = () => {
+    if (settings.provider === PLATFORM_PROVIDER_ID) {
+      return;
+    }
+
     const normalized = normalizeLlmSettings(settings);
     const now = new Date().toISOString();
     const id = normalized.profileId || activeLlmProfileId || `profile-${Date.now()}`;
@@ -502,6 +543,11 @@ const App: React.FC = () => {
   };
 
   const saveAsNewLlmProfile = () => {
+    if (settings.provider === PLATFORM_PROVIDER_ID) {
+      setStatusMessage(`${PLATFORM_PROVIDER_LABEL} cannot be duplicated.`);
+      return;
+    }
+
     const normalized = normalizeLlmSettings(settings);
     const now = new Date().toISOString();
     const id = `profile-${Date.now()}`;
@@ -524,6 +570,11 @@ const App: React.FC = () => {
   };
 
   const deleteLlmProfile = (profileId: string) => {
+    if (profileId === PLATFORM_PROFILE_ID) {
+      setStatusMessage(`${PLATFORM_PROVIDER_LABEL} is a built-in model config and cannot be deleted.`);
+      return;
+    }
+
     if (llmProfiles.length <= 1) {
       setStatusMessage('Keep at least one model config.');
       return;
@@ -630,6 +681,33 @@ const App: React.FC = () => {
 
     if (!preset) {
       updateSettings('provider', providerId);
+      return;
+    }
+
+    if (preset.id === PLATFORM_PROVIDER_ID) {
+      const platformProfile = llmProfiles.find(isPlatformProfile) || createPlatformProfile();
+      setActiveLlmProfileId(PLATFORM_PROFILE_ID);
+      setSettings(normalizeLlmSettings(createPlatformProfile(platformProfile)));
+      setProviderStatus('');
+      return;
+    }
+
+    if (settings.provider === PLATFORM_PROVIDER_ID) {
+      const id = `profile-${Date.now()}`;
+      const profile = createProfileFromSettings({
+        ...DEFAULT_SETTINGS,
+        profileId: id,
+        profileName: `${preset.label} ${preset.models[0]}`,
+        provider: preset.id,
+        endpoint: preset.endpoint,
+        model: preset.models[0],
+        useJsonMode: preset.useJsonMode,
+      });
+
+      setLlmProfiles((current) => [...current, profile]);
+      setActiveLlmProfileId(profile.id);
+      setSettings(normalizeLlmSettings(profile));
+      setProviderStatus('');
       return;
     }
 
@@ -786,13 +864,17 @@ const App: React.FC = () => {
         }
 
         if (desktopState?.profiles.length) {
+          const hadPlatformProfile = desktopState.profiles.some(isPlatformProfile);
+          const profiles = ensurePlatformProfile(desktopState.profiles);
+          const savedActiveProfile = desktopState.profiles.find((profile) => profile.id === desktopState.activeProfileId);
           const activeProfile =
-            desktopState.profiles.find((profile) => profile.id === desktopState.activeProfileId) ||
-            desktopState.profiles[0];
+            (hadPlatformProfile && savedActiveProfile && !isPlatformProfile(savedActiveProfile)
+              ? profiles.find((profile) => profile.id === desktopState.activeProfileId)
+              : undefined) || profiles[0];
 
-          setLlmProfiles(desktopState.profiles);
+          setLlmProfiles(profiles);
           setActiveLlmProfileId(activeProfile.id);
-          setSettings(normalizeLlmSettings(activeProfile));
+          setSettings(normalizeLlmSettings(isPlatformProfile(activeProfile) ? createPlatformProfile(activeProfile) : activeProfile));
         } else {
           await saveDesktopLlmProfiles({
             activeProfileId: activeLlmProfileId,
@@ -1937,17 +2019,24 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <label className="block">
                   <span className="text-xs font-medium text-stone-600">Provider</span>
-                  <select
-                    value={settings.provider}
-                    onChange={(event) => onProviderChange(event.target.value)}
-                    className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
-                  >
-                    {PROVIDER_PRESETS.map((provider) => (
-                      <option key={provider.id} value={provider.id}>
-                        {provider.label}
-                      </option>
-                    ))}
-                  </select>
+                  {usesDailyCredits ? (
+                    <div className="mt-1 flex h-10 items-center justify-between rounded-md border border-stone-300 bg-stone-100 px-3 text-sm">
+                      <span>{PLATFORM_PROVIDER_LABEL}</span>
+                      <span className="text-xs font-medium text-stone-500">Locked</span>
+                    </div>
+                  ) : (
+                    <select
+                      value={settings.provider}
+                      onChange={(event) => onProviderChange(event.target.value)}
+                      className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+                    >
+                      {PROVIDER_PRESETS.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </label>
                 <label className="block">
                   <span className="text-xs font-medium text-stone-600">Preset Model</span>
@@ -1975,6 +2064,13 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
                 <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
                   <p className="font-semibold">{PLATFORM_PROVIDER_LABEL} is managed by LuminaBook.</p>
                   <p className="mt-1">Model: {PLATFORM_PROVIDER_MODEL}. Endpoint, API key, model, temperature, JSON mode, timeout, and system prompt are fixed by the platform and cannot be edited in the browser.</p>
+                  <button
+                    type="button"
+                    onClick={() => onProviderChange('openai')}
+                    className="mt-2 rounded-md border border-amber-300 bg-white px-3 py-1.5 font-medium text-amber-950 hover:bg-amber-100"
+                  >
+                    Add personal config
+                  </button>
                 </div>
               ) : (
                 <>
@@ -2024,26 +2120,32 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
                 </>
               )}
               <div className="mt-4 flex flex-wrap items-center gap-3">
-                <button
-                  onClick={onSaveCurrentLlmProfile}
-                  className="flex h-10 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-[#fffdf8] hover:bg-stone-800"
-                >
-                  <Check className="h-4 w-4" />
-                  Save
-                </button>
-                <button
-                  onClick={onSaveAsNewLlmProfile}
-                  className="flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-4 text-sm font-medium text-stone-800 hover:bg-white"
-                >
-                  <Plus className="h-4 w-4" />
-                  Save New
-                </button>
-                <button
-                  onClick={() => onDeleteLlmProfile(activeLlmProfileId)}
-                  className="flex h-10 items-center gap-2 rounded-md border border-stone-300 px-4 text-sm font-medium text-stone-600 hover:bg-stone-100"
-                >
-                  Delete
-                </button>
+                {usesDailyCredits ? (
+                  <span className="text-xs font-medium text-stone-500">Built-in config · no changes to save</span>
+                ) : (
+                  <>
+                    <button
+                      onClick={onSaveCurrentLlmProfile}
+                      className="flex h-10 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-[#fffdf8] hover:bg-stone-800"
+                    >
+                      <Check className="h-4 w-4" />
+                      Save
+                    </button>
+                    <button
+                      onClick={onSaveAsNewLlmProfile}
+                      className="flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-4 text-sm font-medium text-stone-800 hover:bg-white"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Save New
+                    </button>
+                    <button
+                      onClick={() => onDeleteLlmProfile(activeLlmProfileId)}
+                      className="flex h-10 items-center gap-2 rounded-md border border-stone-300 px-4 text-sm font-medium text-stone-600 hover:bg-stone-100"
+                    >
+                      Delete
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
