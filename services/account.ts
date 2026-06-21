@@ -106,7 +106,7 @@ export const getAccountAccessToken = async () => {
   const session = await getAccountSession();
 
   if (!session?.access_token) {
-    throw new Error('Sign in to use LuminaBook Daily Credits.');
+    throw new Error('Sign in to use [FREE-QWEN].');
   }
 
   return session.access_token;

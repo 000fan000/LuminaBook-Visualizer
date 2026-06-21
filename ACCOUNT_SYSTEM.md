@@ -10,7 +10,7 @@ LuminaBook supports optional email accounts and a server-funded daily LLM allowa
 - A 50,000-unit daily allowance that resets at 00:00 UTC.
 - Atomic quota reservation, settlement, and release in PostgreSQL.
 - A Cloudflare Pages Function that validates the user, protects the platform model key, and records actual model usage.
-- A `LuminaBook Daily Credits` model-provider preset.
+- A locked `[FREE-QWEN]` model-provider preset backed by the platform-managed `qwen-flash` model.
 - A lightweight personal usage view with seven-day activity, 30-day totals, operation breakdown, and recent requests.
 - A protected `/admin` dashboard with operational metrics, user search, detailed usage filters, suspension, allowance overrides, and internal notes.
 - Existing direct OpenAI-compatible providers remain available without an account.
@@ -101,14 +101,13 @@ PLATFORM_LLM_MODEL
 PLATFORM_LLM_INPUT_USD_PER_MILLION
 PLATFORM_LLM_OUTPUT_USD_PER_MILLION
 ```
-
 The final two variables are optional. Set them to the selected model's current USD prices per million input and output tokens to enable the admin cost estimate. Recheck these values whenever provider pricing changes.
 
 Example endpoint values:
 
 ```text
-PLATFORM_LLM_ENDPOINT=https://api.openai.com/v1/chat/completions
-PLATFORM_LLM_MODEL=gpt-4.1-mini
+PLATFORM_LLM_ENDPOINT=YOUR_OPENAI_COMPATIBLE_QWEN_ENDPOINT
+PLATFORM_LLM_MODEL=qwen-flash
 ```
 
 The platform provider must expose an OpenAI-compatible chat-completions response, including `choices[0].message.content`. Provider token usage is used when available; otherwise the Function applies a conservative estimate.
@@ -150,7 +149,7 @@ Expected diagnostics:
 2. Create an account with an email and a password of at least eight characters.
 3. Complete email verification if no session is issued immediately.
 4. Sign in and confirm that 50,000 daily units are displayed.
-5. Open model configuration and select `LuminaBook Daily Credits`.
+5. Open model configuration and select `[FREE-QWEN]`.
 6. Translate one page.
 7. Confirm that the remaining units decrease.
 8. Confirm that a `completed` row exists in `usage_events`.

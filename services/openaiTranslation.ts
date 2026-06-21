@@ -30,12 +30,23 @@ export interface ProviderPreset {
   useJsonMode: boolean;
 }
 
+export const DEFAULT_SYSTEM_PROMPT = `You are LuminaBook, a careful bilingual great-books reading companion.
+
+Translate faithfully into the reader's mother language while preserving interpretive ambiguity.
+Explain what may be lost in translation, especially key terms, metaphors, grammar, historical context, and hermeneutic stakes.
+Do not simplify away difficulty. Help the reader compare source and translation reflectively and proactively.`;
+
+export const PLATFORM_PROVIDER_ID = 'luminabook';
+export const PLATFORM_PROVIDER_LABEL = '[FREE-QWEN]';
+export const PLATFORM_PROVIDER_MODEL = 'qwen-flash';
+const PLATFORM_PROXY_ENDPOINT = '/api/llm';
+
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
-    id: 'luminabook',
-    label: 'LuminaBook Daily Credits',
-    endpoint: '/api/llm',
-    models: ['daily-reader'],
+    id: PLATFORM_PROVIDER_ID,
+    label: PLATFORM_PROVIDER_LABEL,
+    endpoint: PLATFORM_PROXY_ENDPOINT,
+    models: [PLATFORM_PROVIDER_MODEL],
     useJsonMode: true,
   },
   {
@@ -68,10 +79,10 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   },
 ];
 
-const isFundedProvider = (settings: LlmSettings) => settings.provider === 'luminabook';
+const isFundedProvider = (settings: LlmSettings) => settings.provider === PLATFORM_PROVIDER_ID;
 
 const hasRequiredSettings = (settings: LlmSettings) =>
-  Boolean(settings.endpoint.trim() && settings.model.trim() && (isFundedProvider(settings) || settings.apiKey.trim()));
+  isFundedProvider(settings) || Boolean(settings.endpoint.trim() && settings.model.trim() && settings.apiKey.trim());
 
 const getPlatformOperation = (requestName: string) => {
   if (requestName === 'provider test') return 'test';
@@ -410,10 +421,12 @@ const postChatCompletion = async (
   requestName = 'chat completion',
 ) => {
   const fundedProvider = isFundedProvider(settings);
-  const url = fundedProvider ? settings.endpoint : normalizeEndpoint(settings.endpoint);
+  const operation = getPlatformOperation(requestName);
+  const url = fundedProvider ? PLATFORM_PROXY_ENDPOINT : normalizeEndpoint(settings.endpoint);
   const logPrefix = `[LuminaBook LLM] ${requestName}`;
-  const timeoutMs = getEvaluationTimeoutMs(settings);
-  const temperature = getEvaluationTemperature(settings);
+  const timeoutMs = fundedProvider ? 600_000 : getEvaluationTimeoutMs(settings);
+  const temperature = fundedProvider ? 0.3 : getEvaluationTemperature(settings);
+  const displayModel = fundedProvider ? PLATFORM_PROVIDER_MODEL : settings.model;
 
   const send = async (useJsonMode: boolean, attempt: string) => {
     const headers = fundedProvider
@@ -425,7 +438,7 @@ const postChatCompletion = async (
     const requestBody = fundedProvider
       ? {
           requestId: crypto.randomUUID(),
-          operation: getPlatformOperation(requestName),
+          operation,
           messages,
           maxTokens,
           temperature,
@@ -449,7 +462,7 @@ const postChatCompletion = async (
       provider: settings.provider,
       endpoint: url,
       method: 'POST',
-      model: settings.model,
+      model: displayModel,
       useJsonMode,
       maxTokens: maxTokens ?? null,
       headers: sanitizeHeadersForLog(headers),
@@ -507,7 +520,7 @@ const postChatCompletion = async (
         provider: settings.provider,
         endpoint: url,
         method: 'POST',
-        model: settings.model,
+        model: displayModel,
         temperature,
         maxTokens: maxTokens ?? null,
         useJsonMode,
@@ -563,7 +576,7 @@ const postChatCompletion = async (
         provider: settings.provider,
         endpoint: url,
         method: 'POST',
-        model: settings.model,
+        model: displayModel,
         temperature,
         maxTokens: maxTokens ?? null,
         useJsonMode,
@@ -643,7 +656,7 @@ export const translateSegment = async (
     [
       {
         role: 'system',
-        content: settings.systemPrompt,
+        content: isFundedProvider(settings) ? DEFAULT_SYSTEM_PROMPT : settings.systemPrompt,
       },
       {
         role: 'user',

@@ -45,8 +45,12 @@ import {
 } from './services/llmEvaluationStorage';
 import {
   converseWithReadingAgent,
+  DEFAULT_SYSTEM_PROMPT,
   defineSelectedText,
   detectBookMetadata,
+  PLATFORM_PROVIDER_ID,
+  PLATFORM_PROVIDER_LABEL,
+  PLATFORM_PROVIDER_MODEL,
   PROVIDER_PRESETS,
   respondToReaderNote,
   testLlmSettings,
@@ -84,12 +88,6 @@ const MOTHER_LANGUAGES = [
   'Português',
   'Русский',
 ];
-
-const DEFAULT_SYSTEM_PROMPT = `You are LuminaBook, a careful bilingual great-books reading companion.
-
-Translate faithfully into the reader's mother language while preserving interpretive ambiguity.
-Explain what may be lost in translation, especially key terms, metaphors, grammar, historical context, and hermeneutic stakes.
-Do not simplify away difficulty. Help the reader compare source and translation reflectively and proactively.`;
 
 const DEFAULT_SETTINGS: LlmSettings = {
   profileId: 'default-openai',
@@ -639,9 +637,12 @@ const App: React.FC = () => {
       ...current,
       provider: preset.id,
       endpoint: preset.endpoint,
-      apiKey: preset.id === 'luminabook' ? '' : current.apiKey,
+      apiKey: preset.id === PLATFORM_PROVIDER_ID ? '' : current.apiKey,
       model: preset.models[0],
-      profileName: `${preset.label} ${preset.models[0]}`,
+      profileName: preset.id === PLATFORM_PROVIDER_ID ? PLATFORM_PROVIDER_LABEL : `${preset.label} ${preset.models[0]}`,
+      temperature: preset.id === PLATFORM_PROVIDER_ID ? 0.3 : current.temperature,
+      requestTimeoutMs: preset.id === PLATFORM_PROVIDER_ID ? 600_000 : current.requestTimeoutMs,
+      systemPrompt: preset.id === PLATFORM_PROVIDER_ID ? DEFAULT_SYSTEM_PROMPT : current.systemPrompt,
       useJsonMode: preset.useJsonMode,
     }));
     setProviderStatus('');
@@ -1771,7 +1772,7 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
 }) => {
   const { t, i18n } = useTranslation();
   const selectedProvider = PROVIDER_PRESETS.find((provider) => provider.id === settings.provider) || PROVIDER_PRESETS[0];
-  const usesDailyCredits = settings.provider === 'luminabook';
+  const usesDailyCredits = settings.provider === PLATFORM_PROVIDER_ID;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/35 px-4 py-6 backdrop-blur-sm">
@@ -1923,7 +1924,16 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
             </div>
 
             <div className="rounded-md border border-stone-200 bg-[#fbf8f1] p-3">
-              <SettingsField label="Config Name" value={settings.profileName || ''} onChange={(value) => onSettingsChange('profileName', value)} />
+              {usesDailyCredits ? (
+                <div>
+                  <span className="text-xs font-medium text-stone-600">Config Name</span>
+                  <div className="mt-1 flex h-10 items-center rounded-md border border-stone-300 bg-stone-100 px-3 text-sm font-semibold text-stone-800">
+                    {PLATFORM_PROVIDER_LABEL}
+                  </div>
+                </div>
+              ) : (
+                <SettingsField label="Config Name" value={settings.profileName || ''} onChange={(value) => onSettingsChange('profileName', value)} />
+              )}
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <label className="block">
                   <span className="text-xs font-medium text-stone-600">Provider</span>
@@ -1941,22 +1951,30 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
                 </label>
                 <label className="block">
                   <span className="text-xs font-medium text-stone-600">Preset Model</span>
-                  <select
-                    value={settings.model}
-                    onChange={(event) => onSettingsChange('model', event.target.value)}
-                    className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
-                  >
-                    {selectedProvider.models.map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </select>
+                  {usesDailyCredits ? (
+                    <div className="mt-1 flex h-10 items-center justify-between rounded-md border border-stone-300 bg-stone-100 px-3 text-sm">
+                      <span>{PLATFORM_PROVIDER_MODEL}</span>
+                      <span className="text-xs font-medium text-stone-500">Locked</span>
+                    </div>
+                  ) : (
+                    <select
+                      value={settings.model}
+                      onChange={(event) => onSettingsChange('model', event.target.value)}
+                      className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+                    >
+                      {selectedProvider.models.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </label>
               </div>
               {usesDailyCredits ? (
                 <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
-                  Sign in from the library header to use the daily allowance. LuminaBook chooses the funded endpoint and model; no API key is stored in the browser.
+                  <p className="font-semibold">{PLATFORM_PROVIDER_LABEL} is managed by LuminaBook.</p>
+                  <p className="mt-1">Model: {PLATFORM_PROVIDER_MODEL}. Endpoint, API key, model, temperature, JSON mode, timeout, and system prompt are fixed by the platform and cannot be edited in the browser.</p>
                 </div>
               ) : (
                 <>
@@ -1966,41 +1984,45 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
                   <SettingsField label="Model" value={settings.model} onChange={(value) => onSettingsChange('model', value)} />
                 </>
               )}
-              <div className="grid gap-3 md:grid-cols-2">
-                <NumberSettingsField
-                  label="Temperature"
-                  value={Number.isFinite(settings.temperature) ? settings.temperature : DEFAULT_SETTINGS.temperature}
-                  min={0}
-                  max={2}
-                  step={0.1}
-                  onChange={(value) => onSettingsChange('temperature', value)}
-                />
-                <NumberSettingsField
-                  label="Timeout seconds"
-                  value={Math.round((Number.isFinite(settings.requestTimeoutMs) ? settings.requestTimeoutMs : DEFAULT_SETTINGS.requestTimeoutMs) / 1000)}
-                  min={30}
-                  max={1800}
-                  step={30}
-                  onChange={(value) => onSettingsChange('requestTimeoutMs', Math.max(30, value) * 1000)}
-                />
-              </div>
-              <label className="mt-3 flex items-center gap-2 text-sm text-stone-700">
-                <input
-                  type="checkbox"
-                  checked={settings.useJsonMode}
-                  onChange={(event) => onSettingsChange('useJsonMode', event.target.checked)}
-                  className="h-4 w-4 accent-stone-950"
-                />
-                Request JSON mode when provider supports it
-              </label>
-              <label className="mt-3 block">
-                <span className="text-xs font-medium text-stone-600">System Prompt</span>
-                <textarea
-                  value={settings.systemPrompt}
-                  onChange={(event) => onSettingsChange('systemPrompt', event.target.value)}
-                  className="mt-1 h-32 w-full resize-none rounded-md border border-stone-300 bg-[#fffdf8] p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-stone-400"
-                />
-              </label>
+              {!usesDailyCredits && (
+                <>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <NumberSettingsField
+                      label="Temperature"
+                      value={Number.isFinite(settings.temperature) ? settings.temperature : DEFAULT_SETTINGS.temperature}
+                      min={0}
+                      max={2}
+                      step={0.1}
+                      onChange={(value) => onSettingsChange('temperature', value)}
+                    />
+                    <NumberSettingsField
+                      label="Timeout seconds"
+                      value={Math.round((Number.isFinite(settings.requestTimeoutMs) ? settings.requestTimeoutMs : DEFAULT_SETTINGS.requestTimeoutMs) / 1000)}
+                      min={30}
+                      max={1800}
+                      step={30}
+                      onChange={(value) => onSettingsChange('requestTimeoutMs', Math.max(30, value) * 1000)}
+                    />
+                  </div>
+                  <label className="mt-3 flex items-center gap-2 text-sm text-stone-700">
+                    <input
+                      type="checkbox"
+                      checked={settings.useJsonMode}
+                      onChange={(event) => onSettingsChange('useJsonMode', event.target.checked)}
+                      className="h-4 w-4 accent-stone-950"
+                    />
+                    Request JSON mode when provider supports it
+                  </label>
+                  <label className="mt-3 block">
+                    <span className="text-xs font-medium text-stone-600">System Prompt</span>
+                    <textarea
+                      value={settings.systemPrompt}
+                      onChange={(event) => onSettingsChange('systemPrompt', event.target.value)}
+                      className="mt-1 h-32 w-full resize-none rounded-md border border-stone-300 bg-[#fffdf8] p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-stone-400"
+                    />
+                  </label>
+                </>
+              )}
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button
                   onClick={onSaveCurrentLlmProfile}

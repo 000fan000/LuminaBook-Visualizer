@@ -172,6 +172,6 @@ export const onRequestPost = async (context: PagesContext) => {
     if (isDatabaseMigrationMissing(error)) {
       return json({ error: 'Account database migrations are missing. Apply both SQL files in supabase/migrations, then retry.' }, 503);
     }
-    return json({ error: message === 'unauthorized' ? 'Sign in to use LuminaBook Daily Credits.' : 'The funded model service is unavailable.' }, message === 'unauthorized' ? 401 : 500);
+    return json({ error: message === 'unauthorized' ? 'Sign in to use [FREE-QWEN].' : 'The funded model service is unavailable.' }, message === 'unauthorized' ? 401 : 500);
   }
 };
