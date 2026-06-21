@@ -19,6 +19,32 @@ export interface AuthUser {
   email?: string;
 }
 
+const CONFIG_PLACEHOLDER = /YOUR_|example\.supabase|test-(?:anon|service|platform)|^\s*$/i;
+
+const assertConfigured = (context: PagesContext, keys: Array<keyof Env>) => {
+  const invalidKeys = keys.filter((key) => CONFIG_PLACEHOLDER.test(String(context.env[key] || '')));
+  if (invalidKeys.length) throw new Error(`server_configuration_missing:${invalidKeys.join(',')}`);
+};
+
+export const assertPlatformProviderConfigured = (context: PagesContext) =>
+  assertConfigured(context, ['PLATFORM_LLM_ENDPOINT', 'PLATFORM_LLM_API_KEY', 'PLATFORM_LLM_MODEL']);
+
+const fetchWithTimeout = async (input: RequestInfo | URL, init?: RequestInit, timeoutMs = 12_000) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('supabase_request_timeout');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 export const json = (payload: unknown, status = 200, headers?: HeadersInit) =>
   new Response(JSON.stringify(payload), {
     status,
@@ -26,10 +52,11 @@ export const json = (payload: unknown, status = 200, headers?: HeadersInit) =>
   });
 
 export const requireUser = async (context: PagesContext): Promise<AuthUser> => {
+  assertConfigured(context, ['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
   const authorization = context.request.headers.get('Authorization');
   if (!authorization?.startsWith('Bearer ')) throw new Error('unauthorized');
 
-  const response = await fetch(`${context.env.SUPABASE_URL}/auth/v1/user`, {
+  const response = await fetchWithTimeout(`${context.env.SUPABASE_URL}/auth/v1/user`, {
     headers: {
       Authorization: authorization,
       apikey: context.env.SUPABASE_ANON_KEY,
@@ -49,7 +76,8 @@ const serviceHeaders = (context: PagesContext, extras?: HeadersInit) => ({
 });
 
 export const serviceRequest = async <T>(context: PagesContext, path: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(`${context.env.SUPABASE_URL}${path}`, {
+  assertConfigured(context, ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']);
+  const response = await fetchWithTimeout(`${context.env.SUPABASE_URL}${path}`, {
     ...init,
     headers: serviceHeaders(context, init?.headers),
   });
@@ -70,7 +98,8 @@ export const requireAdmin = async (context: PagesContext) => {
 };
 
 export const serviceRpc = async <T>(context: PagesContext, name: string, body: Record<string, unknown>): Promise<T> => {
-  const response = await fetch(`${context.env.SUPABASE_URL}/rest/v1/rpc/${name}`, {
+  assertConfigured(context, ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']);
+  const response = await fetchWithTimeout(`${context.env.SUPABASE_URL}/rest/v1/rpc/${name}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -84,3 +113,22 @@ export const serviceRpc = async <T>(context: PagesContext, name: string, body: R
 };
 
 export const todayUtc = () => new Date().toISOString().slice(0, 10);
+
+export const isDatabaseMigrationMissing = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  return /PGRST202|PGRST205|42P01|schema cache.*(?:table|function)|could not find the (?:table|function)/i.test(message);
+};
+
+export const getServerSetupError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.startsWith('server_configuration_missing:')) {
+    if (message.includes('PLATFORM_LLM_')) {
+      return 'Platform model variables are placeholders. Update PLATFORM_LLM_ENDPOINT, PLATFORM_LLM_API_KEY, and PLATFORM_LLM_MODEL in .dev.vars, then restart Wrangler.';
+    }
+    return 'Local server variables are placeholders. Update SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .dev.vars, then restart Wrangler.';
+  }
+  if (message === 'supabase_request_timeout') {
+    return 'The server could not reach Supabase within 12 seconds. Check SUPABASE_URL and local network access, then restart Wrangler.';
+  }
+  return null;
+};

@@ -55,6 +55,8 @@ supabase/migrations/202606200001_account_quota.sql
 supabase/migrations/202606200002_usage_dashboards.sql
 ```
 
+**This step is required before the first account/quota test.** Supabase Auth can successfully create and sign in a user without these tables, but `/api/quota`, `/api/usage`, funded model calls, and the admin dashboard cannot work until both migrations have completed.
+
 For an initial manual setup, paste the migration into the Supabase SQL Editor and run it once. For managed environments, use the Supabase CLI migration workflow.
 
 The migration creates:
@@ -74,7 +76,7 @@ Only the service role can execute quota mutation functions. Authenticated users 
 
 ## 3. Configure Browser Variables
 
-Copy `.env.example` to `.env.local` for local development and set:
+Copy `.env.example` to `.env.local` for the Vite build and set:
 
 ```dotenv
 VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
@@ -115,16 +117,32 @@ Redeploy the Pages project after adding or changing build variables. Function-se
 
 ## 5. Local Development
 
-`vite` serves only the frontend and does not run the Pages Functions. For an end-to-end local test, build the application and run it through Wrangler Pages development:
+`npm run dev` serves only the Vite frontend. It does not run Pages Functions. Requests such as `/api/usage` fall back to the SPA HTML document, so this command is suitable for frontend-only work but not account/quota testing.
+
+Copy the server-variable template without committing it:
 
 ```bash
-npm run build
-npx wrangler pages dev dist
+cp .dev.vars.example .dev.vars
 ```
 
-Provide local Function secrets using Wrangler's supported local secret or variable mechanism. Do not commit the resulting secret file.
+Fill in the Supabase service-role and platform-provider values, then run the full local Pages environment:
 
-For frontend-only auth work, `npm run dev` is sufficient, but `/api/quota` and `/api/llm` require the deployed or Wrangler-hosted Functions.
+```bash
+npm run dev:cloudflare
+```
+
+The command builds Vite, starts Cloudflare Pages Functions, and serves the application at:
+
+```text
+http://localhost:8788
+```
+
+Add that origin to the Supabase Authentication redirect URL allowlist. `.env`, `.env.local`, `.dev.vars`, and Wrangler state are ignored by Git; only their example templates are tracked.
+
+Expected diagnostics:
+
+- `API is not running`: the page was opened from Vite instead of port `8788`.
+- `Account database migrations are missing`: Wrangler is running, but one or both SQL migrations have not been applied.
 
 ## 6. Verify the User Flow
 
@@ -204,4 +222,4 @@ The initial 50,000-unit allowance is provisional. Use production `usage_events` 
 5. Add subscription entitlements only after free-credit economics are measured.
 6. Evaluate a mainland-capable SMS provider before enabling phone login.
 
-Last reviewed: 2026-06-20
+Last reviewed: 2026-06-21

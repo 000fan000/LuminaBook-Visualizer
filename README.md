@@ -24,6 +24,11 @@ Prerequisites: Node.js
    npm run dev
    ```
 
+   To test accounts, quota, and Pages Functions locally, configure `.dev.vars` and use:
+   ```bash
+   npm run dev:cloudflare
+   ```
+
 3. Build the web app:
    ```bash
    npm run build

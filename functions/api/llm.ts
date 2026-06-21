@@ -1,4 +1,4 @@
-import { json, PagesContext, requireUser, serviceRpc } from './_shared';
+import { assertPlatformProviderConfigured, getServerSetupError, isDatabaseMigrationMissing, json, PagesContext, requireUser, serviceRpc } from './_shared';
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -65,6 +65,7 @@ export const onRequestPost = async (context: PagesContext) => {
 
   try {
     const user = await requireUser(context);
+    assertPlatformProviderConfigured(context);
     const payload = (await context.request.json()) as PlatformRequest;
     requestId = payload.requestId || crypto.randomUUID();
     const operation = payload.operation || '';
@@ -166,6 +167,11 @@ export const onRequestPost = async (context: PagesContext) => {
     if (requestId) await releaseReservation(context, requestId, 'internal_error');
     const message = error instanceof Error ? error.message : 'platform_error';
     console.error('Platform LLM request failed.', error);
+    const setupError = getServerSetupError(error);
+    if (setupError) return json({ error: setupError }, 503);
+    if (isDatabaseMigrationMissing(error)) {
+      return json({ error: 'Account database migrations are missing. Apply both SQL files in supabase/migrations, then retry.' }, 503);
+    }
     return json({ error: message === 'unauthorized' ? 'Sign in to use LuminaBook Daily Credits.' : 'The funded model service is unavailable.' }, message === 'unauthorized' ? 401 : 500);
   }
 };

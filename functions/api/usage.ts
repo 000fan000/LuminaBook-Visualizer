@@ -1,4 +1,4 @@
-import { json, PagesContext, requireUser, serviceRequest } from './_shared';
+import { getServerSetupError, isDatabaseMigrationMissing, json, PagesContext, requireUser, serviceRequest } from './_shared';
 
 interface UsageRow {
   id: string;
@@ -75,7 +75,11 @@ export const onRequestGet = async (context: PagesContext) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'usage_error';
+    const setupError = getServerSetupError(error);
+    if (setupError) return json({ error: setupError }, 503);
+    if (isDatabaseMigrationMissing(error)) {
+      return json({ error: 'Account database migrations are missing. Apply both SQL files in supabase/migrations, then retry.' }, 503);
+    }
     return json({ error: message === 'unauthorized' ? 'Sign in to view usage.' : 'Could not load usage history.' }, message === 'unauthorized' ? 401 : 500);
   }
 };
-

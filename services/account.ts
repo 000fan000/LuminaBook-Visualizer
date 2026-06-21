@@ -39,6 +39,33 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
 
 let browserClient: SupabaseClient | null = null;
 
+export const readJsonApiResponse = async <T>(response: Response, label: string): Promise<T> => {
+  const contentType = response.headers.get('content-type') || '';
+  const responseText = await response.text();
+
+  if (!contentType.toLowerCase().includes('application/json')) {
+    const isHtmlFallback = response.ok && /text\/html/i.test(contentType);
+    throw new Error(
+      isHtmlFallback
+        ? `${label} API is not running. Use "npm run dev:cloudflare" instead of "npm run dev" for account and quota features.`
+        : `${label} returned an unexpected ${contentType || 'unknown'} response (${response.status}).`,
+    );
+  }
+
+  let payload: (T & { error?: string }) | null = null;
+  try {
+    payload = responseText ? JSON.parse(responseText) as T & { error?: string } : null;
+  } catch {
+    throw new Error(`${label} returned invalid JSON (${response.status}).`);
+  }
+
+  if (!response.ok || !payload || (typeof payload === 'object' && typeof payload.error === 'string')) {
+    throw new Error(payload?.error || `${label} failed (${response.status}).`);
+  }
+
+  return payload;
+};
+
 export const isAccountSystemConfigured = () => Boolean(supabaseUrl && supabaseAnonKey);
 
 export const getAccountClient = () => {
@@ -91,12 +118,10 @@ export const loadQuotaSummary = async (accessToken: string): Promise<QuotaSummar
       Authorization: `Bearer ${accessToken}`,
     },
   });
-  const payload = (await response.json().catch(() => null)) as QuotaSummary & { error?: string } | null;
-
-  if (!response.ok || !payload) {
-    throw new Error(payload?.error || `Could not load daily credits (${response.status}).`);
+  const payload = await readJsonApiResponse<QuotaSummary>(response, 'Daily credits');
+  if (!Number.isFinite(payload.allowanceUnits) || !Number.isFinite(payload.remainingUnits)) {
+    throw new Error('Daily credits returned an invalid response. Confirm that both Supabase migrations are applied.');
   }
-
   return payload;
 };
 
@@ -104,12 +129,10 @@ export const loadUsageSummary = async (accessToken: string): Promise<UsageSummar
   const response = await fetch('/api/usage', {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  const payload = (await response.json().catch(() => null)) as UsageSummary & { error?: string } | null;
-
-  if (!response.ok || !payload) {
-    throw new Error(payload?.error || `Could not load usage history (${response.status}).`);
+  const payload = await readJsonApiResponse<UsageSummary>(response, 'Usage history');
+  if (!payload.totals || !Array.isArray(payload.operations) || !Array.isArray(payload.days) || !Array.isArray(payload.recent)) {
+    throw new Error('Usage history returned an invalid response. Confirm that both Supabase migrations are applied.');
   }
-
   return payload;
 };
 

@@ -1,4 +1,4 @@
-import { getAccountAccessToken } from './account';
+import { getAccountAccessToken, readJsonApiResponse } from './account';
 
 export interface AdminOverview {
   days: number;
@@ -61,9 +61,7 @@ const adminFetch = async <T>(path: string, init?: RequestInit): Promise<T> => {
       ...init?.headers,
     },
   });
-  const payload = (await response.json().catch(() => null)) as T & { error?: string } | null;
-  if (!response.ok || !payload) throw new Error(payload?.error || `Admin request failed (${response.status}).`);
-  return payload;
+  return readJsonApiResponse<T>(response, 'Admin dashboard');
 };
 
 export const loadAdminOverview = (days: number) =>
@@ -88,4 +86,3 @@ export const updateAdminUser = (
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(control),
 });
-

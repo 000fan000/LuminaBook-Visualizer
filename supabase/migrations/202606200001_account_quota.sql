@@ -68,6 +68,14 @@ create trigger create_profile_after_signup
 after insert on auth.users
 for each row execute procedure public.create_profile_for_new_user();
 
+insert into public.profiles (user_id, locale, timezone)
+select
+  id,
+  coalesce(raw_user_meta_data ->> 'locale', 'en'),
+  coalesce(raw_user_meta_data ->> 'timezone', 'UTC')
+from auth.users
+on conflict (user_id) do nothing;
+
 create or replace function public.reserve_daily_quota(
   p_user_id uuid,
   p_request_id text,
@@ -192,4 +200,3 @@ revoke all on function public.release_daily_quota(text, text) from public, anon,
 grant execute on function public.reserve_daily_quota(uuid, text, text, bigint) to service_role;
 grant execute on function public.settle_daily_quota(text, text, integer, integer, bigint) to service_role;
 grant execute on function public.release_daily_quota(text, text) to service_role;
-
