@@ -1559,6 +1559,10 @@ const App: React.FC = () => {
         statusMessage={statusMessage}
         errorMessage={errorMessage}
         onBack={() => setView('library')}
+        onOpenConfig={() => {
+          setView('library');
+          setIsConfigOpen(true);
+        }}
         onPrevious={() => moveSegment(-1)}
         onNext={() => moveSegment(1)}
         onGoToSegment={goToSegment}
@@ -1742,14 +1746,12 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           <Download className="h-4 w-4" />
           <span className="hidden sm:inline">{t('library.shelfJson')}</span>
         </button>
-        <button
-          onClick={onOpenConfig}
-          className="flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 shadow-sm hover:bg-white"
-        >
-          <Settings2 className="h-4 w-4" />
-          {t('common.config')}
-        </button>
-        <AccountMenu motherLanguage={motherLanguage} motherLanguages={MOTHER_LANGUAGES} onMotherLanguageChange={onMotherLanguageChange} />
+        <AccountMenu
+          motherLanguage={motherLanguage}
+          motherLanguages={MOTHER_LANGUAGES}
+          onMotherLanguageChange={onMotherLanguageChange}
+          onOpenConfig={onOpenConfig}
+        />
       </div>
     </header>
 
@@ -2243,6 +2245,7 @@ interface ReaderViewProps {
   statusMessage: string;
   errorMessage: string;
   onBack: () => void;
+  onOpenConfig: () => void;
   onPrevious: () => void;
   onNext: () => void;
   onGoToSegment: (segmentIndex: number) => void;
@@ -2309,6 +2312,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   statusMessage,
   errorMessage,
   onBack,
+  onOpenConfig,
   onPrevious,
   onNext,
   onGoToSegment,
@@ -2447,7 +2451,12 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             {isTranslating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             {isTranslating ? t('reader.translating', { seconds: llmElapsedSeconds }) : t('reader.translate')}
           </button>
-          <AccountMenu motherLanguage={motherLanguage} motherLanguages={MOTHER_LANGUAGES} onMotherLanguageChange={onMotherLanguageChange} />
+          <AccountMenu
+            motherLanguage={motherLanguage}
+            motherLanguages={MOTHER_LANGUAGES}
+            onMotherLanguageChange={onMotherLanguageChange}
+            onOpenConfig={onOpenConfig}
+          />
         </div>
       </div>
     </header>

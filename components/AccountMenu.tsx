@@ -1,5 +1,5 @@
 import React, { FormEvent, useCallback, useEffect, useState } from 'react';
-import { Activity, ExternalLink, KeyRound, Loader2, LogIn, LogOut, RefreshCw, UserRound, X } from 'lucide-react';
+import { Activity, ExternalLink, KeyRound, Loader2, LogIn, LogOut, RefreshCw, Settings2, UserRound, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import {
   getAccountClient,
@@ -18,9 +18,10 @@ interface AccountMenuProps {
   motherLanguage: string;
   motherLanguages: string[];
   onMotherLanguageChange: (language: string) => void;
+  onOpenConfig: () => void;
 }
 
-export const AccountMenu: React.FC<AccountMenuProps> = ({ motherLanguage, motherLanguages, onMotherLanguageChange }) => {
+export const AccountMenu: React.FC<AccountMenuProps> = ({ motherLanguage, motherLanguages, onMotherLanguageChange, onOpenConfig }) => {
   const configured = isAccountSystemConfigured();
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -217,6 +218,18 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ motherLanguage, mother
               <X className="h-4 w-4" />
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsOpen(false);
+              onOpenConfig();
+            }}
+            className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-md border border-stone-300 bg-white text-sm font-medium text-stone-800 hover:bg-stone-50"
+          >
+            <Settings2 className="h-4 w-4" />
+            设置 / Config
+          </button>
 
           {!configured && (
             <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">

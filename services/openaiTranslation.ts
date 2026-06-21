@@ -367,6 +367,8 @@ const sanitizeHeadersForLog = (headers: Record<string, string>) =>
     ]),
   );
 
+const SHOULD_LOG_LLM_DIAGNOSTICS = import.meta.env.DEV;
+
 const cloneTextResponse = (response: Response, bodyText: string) =>
   new Response(bodyText, {
     status: response.status,
@@ -410,7 +412,9 @@ const getEvaluationTimeoutMs = (settings: LlmSettings) =>
 
 const safeSaveEvaluationRecord = (record: Parameters<typeof saveLlmEvaluationRecord>[0]) => {
   saveLlmEvaluationRecord(record).catch((error) => {
-    console.warn('[LuminaBook LLM] could not save evaluation record', error);
+    if (SHOULD_LOG_LLM_DIAGNOSTICS) {
+      console.warn('[LuminaBook LLM] could not save evaluation record', error);
+    }
   });
 };
 
@@ -423,7 +427,7 @@ const postChatCompletion = async (
   const fundedProvider = isFundedProvider(settings);
   const operation = getPlatformOperation(requestName);
   const url = fundedProvider ? PLATFORM_PROXY_ENDPOINT : normalizeEndpoint(settings.endpoint);
-  const logPrefix = `[LuminaBook LLM] ${requestName}`;
+  const logPrefix = SHOULD_LOG_LLM_DIAGNOSTICS ? `[LuminaBook LLM] ${requestName}` : '';
   const timeoutMs = fundedProvider ? 600_000 : getEvaluationTimeoutMs(settings);
   const temperature = fundedProvider ? 0.3 : getEvaluationTemperature(settings);
   const displayModel = fundedProvider ? PLATFORM_PROVIDER_MODEL : settings.model;
@@ -456,22 +460,24 @@ const postChatCompletion = async (
     const requestText = JSON.stringify(requestBody);
     const inputText = messages.map((message) => message.content).join('\n\n');
 
-    console.groupCollapsed(`${logPrefix} request`);
-    console.log({
-      attempt,
-      provider: settings.provider,
-      endpoint: url,
-      method: 'POST',
-      model: displayModel,
-      useJsonMode,
-      maxTokens: maxTokens ?? null,
-      headers: sanitizeHeadersForLog(headers),
-      body: requestBody,
-      requestCharacters: requestText.length,
-      inputCharacters: inputText.length,
-      timeoutMs,
-    });
-    console.groupEnd();
+    if (SHOULD_LOG_LLM_DIAGNOSTICS) {
+      console.groupCollapsed(`${logPrefix} request`);
+      console.log({
+        attempt,
+        provider: settings.provider,
+        endpoint: url,
+        method: 'POST',
+        model: displayModel,
+        useJsonMode,
+        maxTokens: maxTokens ?? null,
+        headers: sanitizeHeadersForLog(headers),
+        body: requestBody,
+        requestCharacters: requestText.length,
+        inputCharacters: inputText.length,
+        timeoutMs,
+      });
+      console.groupEnd();
+    }
 
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => {
@@ -495,19 +501,21 @@ const postChatCompletion = async (
         announceQuotaUpdate();
       }
 
-      console.info(`${logPrefix} status`, {
-        attempt,
-        ok: response.ok,
-        status: response.status,
-        statusText: response.statusText,
-        elapsedMs,
-        responseCharacters: responseText.length,
-        outputCharacters: responseContent.length,
-        ...responseUsage,
-      });
-      console.groupCollapsed(`${logPrefix} response body`);
-      console.log(responseText);
-      console.groupEnd();
+      if (SHOULD_LOG_LLM_DIAGNOSTICS) {
+        console.info(`${logPrefix} status`, {
+          attempt,
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          elapsedMs,
+          responseCharacters: responseText.length,
+          outputCharacters: responseContent.length,
+          ...responseUsage,
+        });
+        console.groupCollapsed(`${logPrefix} response body`);
+        console.log(responseText);
+        console.groupEnd();
+      }
 
       safeSaveEvaluationRecord({
         id: `${Date.now()}-${crypto.randomUUID()}`,
@@ -558,13 +566,15 @@ const postChatCompletion = async (
           ? error.message
           : String(error);
 
-      console.error(`${logPrefix} failed`, {
-        attempt,
-        elapsedMs,
-        timeoutMs,
-        timedOut: isTimeout,
-        error,
-      });
+      if (SHOULD_LOG_LLM_DIAGNOSTICS) {
+        console.error(`${logPrefix} failed`, {
+          attempt,
+          elapsedMs,
+          timeoutMs,
+          timedOut: isTimeout,
+          error,
+        });
+      }
       safeSaveEvaluationRecord({
         id: `${Date.now()}-${crypto.randomUUID()}`,
         createdAt: new Date().toISOString(),
@@ -622,10 +632,12 @@ const postChatCompletion = async (
   const detail = await response.text();
 
   if (/response_format|json/i.test(detail)) {
-    console.warn(`${logPrefix} retrying without JSON mode`, {
-      initialStatus: response.status,
-      detail: detail.slice(0, 500),
-    });
+    if (SHOULD_LOG_LLM_DIAGNOSTICS) {
+      console.warn(`${logPrefix} retrying without JSON mode`, {
+        initialStatus: response.status,
+        detail: detail.slice(0, 500),
+      });
+    }
     return send(false, 'fallback without JSON mode');
   }
 
