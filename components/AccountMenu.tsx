@@ -14,7 +14,13 @@ import {
 const formatUnits = (units: number) => new Intl.NumberFormat().format(Math.max(0, Math.round(units)));
 const operationLabel = (operation: string) => ({ translate: 'Translation', chat: 'Reading chat', define: 'Definition', note: 'Reader note', metadata: 'Metadata', test: 'Connection test' })[operation] || operation;
 
-export const AccountMenu: React.FC = () => {
+interface AccountMenuProps {
+  motherLanguage: string;
+  motherLanguages: string[];
+  onMotherLanguageChange: (language: string) => void;
+}
+
+export const AccountMenu: React.FC<AccountMenuProps> = ({ motherLanguage, motherLanguages, onMotherLanguageChange }) => {
   const configured = isAccountSystemConfigured();
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -24,9 +30,18 @@ export const AccountMenu: React.FC = () => {
   const [showUsage, setShowUsage] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [signupMotherLanguage, setSignupMotherLanguage] = useState(motherLanguage);
   const [isWorking, setIsWorking] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
+  const applySessionMotherLanguage = useCallback((activeSession: Session | null) => {
+    const savedLanguage = activeSession?.user.user_metadata?.mother_language;
+    if (typeof savedLanguage === 'string' && motherLanguages.includes(savedLanguage)) {
+      setSignupMotherLanguage(savedLanguage);
+      onMotherLanguageChange(savedLanguage);
+    }
+  }, [motherLanguages, onMotherLanguageChange]);
 
   const refreshQuota = useCallback(async (activeSession?: Session | null) => {
     const targetSession = activeSession === undefined ? await getAccountSession() : activeSession;
@@ -66,12 +81,17 @@ export const AccountMenu: React.FC = () => {
     getAccountSession()
       .then((nextSession) => {
         setSession(nextSession);
+        applySessionMotherLanguage(nextSession);
         return refreshQuota(nextSession);
       })
       .catch((sessionError) => setError(sessionError instanceof Error ? sessionError.message : 'Could not restore session.'));
 
     const { data } = client.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
+      applySessionMotherLanguage(nextSession);
+      if (nextSession) {
+        window.dispatchEvent(new CustomEvent('luminabook:account-authenticated'));
+      }
       setQuota(null);
       setUsage(null);
       setError('');
@@ -83,12 +103,21 @@ export const AccountMenu: React.FC = () => {
       if (showUsage) refreshUsage();
     };
     window.addEventListener('luminabook:quota-updated', handleQuotaUpdate);
+    const handleOpenAccount = (event: Event) => {
+      const requestedMode = (event as CustomEvent<{ mode?: 'signin' | 'signup' }>).detail?.mode;
+      setMode(requestedMode || 'signin');
+      setIsOpen(true);
+      setError('');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    window.addEventListener('luminabook:open-account', handleOpenAccount);
 
     return () => {
       data.subscription.unsubscribe();
       window.removeEventListener('luminabook:quota-updated', handleQuotaUpdate);
+      window.removeEventListener('luminabook:open-account', handleOpenAccount);
     };
-  }, [refreshQuota, refreshUsage, showUsage]);
+  }, [applySessionMotherLanguage, refreshQuota, refreshUsage, showUsage]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -108,11 +137,15 @@ export const AccountMenu: React.FC = () => {
         const { data, error: signUpError } = await client.auth.signUp({
           email: email.trim(),
           password,
-          options: { emailRedirectTo: window.location.origin },
+          options: {
+            emailRedirectTo: window.location.origin,
+            data: { mother_language: signupMotherLanguage },
+          },
         });
 
         if (signUpError) throw signUpError;
         setSession(data.session);
+        onMotherLanguageChange(signupMotherLanguage);
         setMessage(data.session ? 'Account created.' : 'Check your email to verify the account.');
       } else {
         const { data, error: signInError } = await client.auth.signInWithPassword({
@@ -122,6 +155,7 @@ export const AccountMenu: React.FC = () => {
 
         if (signInError) throw signInError;
         setSession(data.session);
+        applySessionMotherLanguage(data.session);
         await refreshQuota(data.session);
         await refreshUsage(data.session);
         setMessage('Signed in.');
@@ -160,11 +194,14 @@ export const AccountMenu: React.FC = () => {
       <button
         type="button"
         onClick={() => setIsOpen((current) => !current)}
-        className="flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 shadow-sm hover:bg-white"
+        className={`flex items-center justify-center border border-stone-300 bg-[#fffdf8] text-sm font-medium text-stone-800 shadow-sm hover:bg-white ${
+          session ? 'h-9 w-9 rounded-full' : 'h-10 gap-2 rounded-md px-3'
+        }`}
         title={session ? session.user.email || 'Account' : 'Sign in'}
+        aria-label={session ? 'Open account' : 'Sign in'}
       >
         <UserRound className="h-4 w-4" />
-        <span className="hidden sm:inline">{session ? 'Account' : 'Sign in'}</span>
+        {!session && <span className="hidden sm:inline">Sign in</span>}
       </button>
 
       {isOpen && (
@@ -289,6 +326,19 @@ export const AccountMenu: React.FC = () => {
                 <span className="text-xs font-medium text-stone-600">Password</span>
                 <input type="password" required minLength={8} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400" />
               </label>
+              {mode === 'signup' && (
+                <label className="block">
+                  <span className="text-xs font-medium text-stone-600">母语 / Mother language</span>
+                  <select
+                    required
+                    value={signupMotherLanguage}
+                    onChange={(event) => setSignupMotherLanguage(event.target.value)}
+                    className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+                  >
+                    {motherLanguages.map((language) => <option key={language} value={language}>{language}</option>)}
+                  </select>
+                </label>
+              )}
               <button type="submit" disabled={isWorking} className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-stone-950 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50">
                 {isWorking ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === 'signin' ? <LogIn className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
                 {mode === 'signin' ? 'Sign in' : 'Create account'}

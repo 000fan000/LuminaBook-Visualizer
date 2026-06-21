@@ -159,6 +159,7 @@ const STORAGE_KEYS = {
   highlights: 'luminabook.highlights',
   cards: 'luminabook.knowledgeCards',
   notes: 'luminabook.notes',
+  motherLanguage: 'luminabook.motherLanguage',
   progress: 'luminabook.progress',
   readingTheme: 'luminabook.readingTheme',
   sourceReadingTheme: 'luminabook.sourceReadingTheme',
@@ -386,7 +387,7 @@ const App: React.FC = () => {
   const [view, setView] = useState<'library' | 'reader'>('library');
   const [books, setBooks] = useState<UploadedBook[]>([]);
   const [activeBookId, setActiveBookId] = useState('');
-  const [motherLanguage, setMotherLanguage] = useState('English');
+  const [motherLanguage, setMotherLanguage] = useState(() => readStorage(STORAGE_KEYS.motherLanguage, 'English'));
   const [llmProfiles, setLlmProfiles] = useState<LlmProfile[]>(() => initialLlmProfileState.profiles);
   const [activeLlmProfileId, setActiveLlmProfileId] = useState(initialLlmProfileState.activeProfileId);
   const [settings, setSettings] = useState<LlmSettings>(() => normalizeLlmSettings(initialLlmProfileState.activeProfile));
@@ -771,6 +772,24 @@ const App: React.FC = () => {
       refreshEvaluationRecords();
     }
   };
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.motherLanguage, motherLanguage);
+  }, [motherLanguage]);
+
+  useEffect(() => {
+    const handleOpenAccount = () => setIsConfigOpen(false);
+    const handleAuthenticated = () => {
+      setErrorMessage((current) => current === 'Sign in to use [FREE-QWEN].' ? '' : current);
+    };
+
+    window.addEventListener('luminabook:open-account', handleOpenAccount);
+    window.addEventListener('luminabook:account-authenticated', handleAuthenticated);
+    return () => {
+      window.removeEventListener('luminabook:open-account', handleOpenAccount);
+      window.removeEventListener('luminabook:account-authenticated', handleAuthenticated);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1524,6 +1543,7 @@ const App: React.FC = () => {
       <ReaderView
         book={book}
         motherLanguage={motherLanguage}
+        onMotherLanguageChange={setMotherLanguage}
         activeSegmentIndex={activeSegmentIndex}
         activeSegment={activeSegment}
         activeTranslation={activeTranslation || null}
@@ -1713,7 +1733,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <AccountMenu />
         <button
           onClick={onExportShelfInfo}
           disabled={!books.length}
@@ -1730,6 +1749,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           <Settings2 className="h-4 w-4" />
           {t('common.config')}
         </button>
+        <AccountMenu motherLanguage={motherLanguage} motherLanguages={MOTHER_LANGUAGES} onMotherLanguageChange={onMotherLanguageChange} />
       </div>
     </header>
 
@@ -1769,7 +1789,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           {isLibraryLoading && <p className="mt-4 text-sm text-stone-600">{t('library.loading')}</p>}
         </div>
 
-        <StatusMessage statusMessage={statusMessage} errorMessage={errorMessage} />
+        {!isConfigOpen && <StatusMessage statusMessage={statusMessage} errorMessage={errorMessage} />}
       </section>
     </main>
 
@@ -2207,6 +2227,7 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
 interface ReaderViewProps {
   book: UploadedBook;
   motherLanguage: string;
+  onMotherLanguageChange: (language: string) => void;
   activeSegmentIndex: number;
   activeSegment: UploadedBook['segments'][number];
   activeTranslation: TranslatedSegment | null;
@@ -2272,6 +2293,7 @@ function getSourcePageLabel(segment: UploadedBook['segments'][number]) {
 const ReaderView: React.FC<ReaderViewProps> = ({
   book,
   motherLanguage,
+  onMotherLanguageChange,
   activeSegmentIndex,
   activeSegment,
   activeTranslation,
@@ -2425,6 +2447,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             {isTranslating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             {isTranslating ? t('reader.translating', { seconds: llmElapsedSeconds }) : t('reader.translate')}
           </button>
+          <AccountMenu motherLanguage={motherLanguage} motherLanguages={MOTHER_LANGUAGES} onMotherLanguageChange={onMotherLanguageChange} />
         </div>
       </div>
     </header>
@@ -4196,14 +4219,25 @@ const StatusMessage: React.FC<StatusMessageProps> = ({ statusMessage, errorMessa
     return null;
   }
 
+  const requiresSignIn = errorMessage === 'Sign in to use [FREE-QWEN].';
+  const openSignIn = () => {
+    window.dispatchEvent(new CustomEvent('luminabook:open-account', { detail: { mode: 'signin' } }));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <div
-      className={`${compact ? 'mt-0' : 'mt-5'} flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${
+      className={`${requiresSignIn ? 'fixed left-1/2 top-4 z-40 w-[min(520px,calc(100vw-32px))] -translate-x-1/2 shadow-xl' : compact ? 'mt-0' : 'mt-5'} flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${
         errorMessage ? 'border-red-300 bg-red-50 text-red-800' : 'border-emerald-300 bg-emerald-50 text-emerald-800'
       }`}
     >
       {errorMessage ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
-      <span>{errorMessage || statusMessage}</span>
+      <span className="flex-1">{errorMessage || statusMessage}</span>
+      {requiresSignIn && (
+        <button type="button" onClick={openSignIn} className="shrink-0 rounded-md bg-red-800 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700">
+          Sign in
+        </button>
+      )}
     </div>
   );
 };

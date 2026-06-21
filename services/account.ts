@@ -106,6 +106,7 @@ export const getAccountAccessToken = async () => {
   const session = await getAccountSession();
 
   if (!session?.access_token) {
+    window.dispatchEvent(new CustomEvent('luminabook:open-account', { detail: { mode: 'signin' } }));
     throw new Error('Sign in to use [FREE-QWEN].');
   }
 
