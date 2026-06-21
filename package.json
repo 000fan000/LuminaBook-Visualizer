@@ -8,6 +8,8 @@
     "dev": "vite",
     "dev:cloudflare": "npm run build && wrangler pages dev dist --port 8788",
     "build": "vite build",
+    "deploy:cloudflare": "wrangler pages deploy dist --project-name=luminabook-visualizer",
+    "release:cloudflare": "npm run build && npm run deploy:cloudflare",
     "preview": "vite preview",
     "dev:mac": "electron-forge start",
     "package:mac": "electron-forge package --platform=darwin",

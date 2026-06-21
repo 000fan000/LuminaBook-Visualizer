@@ -48,6 +48,20 @@ Git integration is the recommended workflow because pushes and pull requests rec
 7. Leave application API-key environment variables unset.
 8. Select **Save and Deploy**.
 
+For a normal Pages Git integration, Cloudflare publishes the configured `dist` output automatically. Do not set the deploy command to `npx wrangler deploy`; that command targets Workers, not Pages.
+
+If the Cloudflare build screen requires an explicit user deploy command, use:
+
+```text
+npm run deploy:cloudflare
+```
+
+Equivalent command:
+
+```text
+npx wrangler pages deploy dist --project-name=luminabook-visualizer
+```
+
 Cloudflare assigns a production URL similar to:
 
 ```text
@@ -114,6 +128,12 @@ Deploy the contents of `dist/`:
 npx wrangler pages deploy dist --project-name=luminabook-visualizer
 ```
 
+The repository also provides combined build-and-deploy commands:
+
+```bash
+npm run release:cloudflare
+```
+
 Deploy a preview associated with another branch:
 
 ```bash
@@ -123,6 +143,26 @@ npx wrangler pages deploy dist \
 ```
 
 Choose the project workflow deliberately. A project created for Direct Upload cannot later be converted to Git integration. A Git-integrated Pages project can disable automatic builds and accept Wrangler deployments, but it cannot use dashboard drag-and-drop uploads.
+
+## Wrong Deploy Command
+
+This repository uses Cloudflare **Pages** because the backend routes live under `functions/`. The following command is incorrect:
+
+```text
+npx wrangler deploy
+```
+
+It invokes Workers deployment and produces warnings about a Pages project followed by `Missing entry-point to Worker script or to assets directory`.
+
+Fix the Cloudflare configuration as follows:
+
+1. Confirm that the project type is **Pages**, not Workers.
+2. Set the build command to `npm run build`.
+3. Set the output directory to `dist`.
+4. Leave the deploy command empty for standard Pages Git integration.
+5. If the UI requires a deploy command, set it to `npm run deploy:cloudflare`.
+
+If the existing project was created as a Worker, create a new Pages project and connect the same repository. Adding a Worker `main` entry point is not the correct fix because it would omit the Pages Functions account and quota APIs.
 
 ## Custom Domain
 
