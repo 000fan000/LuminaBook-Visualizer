@@ -9,6 +9,7 @@ import {
   Check,
   FileText,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -75,6 +76,7 @@ import {
   TranslationResult,
   TranslatedSegment,
   UploadedBook,
+  TocEntry,
 } from './types';
 
 const MOTHER_LANGUAGES = [
@@ -306,6 +308,7 @@ const getProfileUsageSummary = (profile: LlmProfile, records: LlmEvaluationRecor
 };
 
 const NEXT_PAGE_PREVIEW_MAX_CHARS = 700;
+const TOC_PREVIEW_MAX_CHARS = 1400;
 const getNextPageContinuityPreview = (text: string) => {
   const normalized = text.replace(/\r/g, '').trim();
   const paragraphs = normalized
@@ -328,6 +331,45 @@ const getNextPageContinuityPreview = (text: string) => {
   const lines = normalized.split('\n').map((line) => line.trim()).filter(Boolean);
   const firstLineLooksLikePdfHeader = lines.length > 1 && lines[0].length <= 100 && /\d/.test(lines[0]);
   return (firstLineLooksLikePdfHeader ? lines.slice(1).join('\n') : first).slice(0, NEXT_PAGE_PREVIEW_MAX_CHARS);
+};
+
+const getTocEntryTargetIndex = (entry: TocEntry, book: UploadedBook) => {
+  if (entry.segmentIndex !== undefined) {
+    return entry.segmentIndex;
+  }
+
+  if (entry.pageNumber !== undefined) {
+    return book.segments.find((segment) =>
+      segment.firstPage !== undefined &&
+      segment.lastPage !== undefined &&
+      entry.pageNumber! >= segment.firstPage &&
+      entry.pageNumber! <= segment.lastPage,
+    )?.index;
+  }
+
+  return undefined;
+};
+
+const buildTocPreviewText = (entry: TocEntry, book: UploadedBook) => {
+  const startIndex = getTocEntryTargetIndex(entry, book);
+
+  if (startIndex === undefined) {
+    return '';
+  }
+
+  const nextTargetIndex = (book.toc || [])
+    .map((candidate) => getTocEntryTargetIndex(candidate, book))
+    .filter((index): index is number => index !== undefined && index > startIndex)
+    .sort((a, b) => a - b)[0];
+  const endIndex = Math.min(nextTargetIndex ?? startIndex + 3, startIndex + 3, book.segments.length);
+  const preview = book.segments
+    .slice(startIndex, endIndex)
+    .map((segment) => segment.sourceText)
+    .join('\n\n')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return preview.length > TOC_PREVIEW_MAX_CHARS ? `${preview.slice(0, TOC_PREVIEW_MAX_CHARS).trim()}...` : preview;
 };
 
 const downloadJsonFile = (fileName: string, data: unknown) => {
@@ -2407,12 +2449,15 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   onSendReadingAgentMessage,
 }) => {
   const { t } = useTranslation();
-  const [isTocOpen, setIsTocOpen] = useState(false);
+  const [isTocOpen, setIsTocOpen] = useState(true);
+  const [previewTocEntry, setPreviewTocEntry] = useState<TocEntry | null>(null);
   const [isTranslationFormatOpen, setIsTranslationFormatOpen] = useState(false);
   const [sourceShowHighlights, setSourceShowHighlights] = useState(true);
   const [sourceShowKnowledgeCards, setSourceShowKnowledgeCards] = useState(true);
   const [sourceIsFormatOpen, setSourceIsFormatOpen] = useState(false);
   const tocEntries = book.toc || [];
+  const previewTargetIndex = previewTocEntry ? getTocEntryTargetIndex(previewTocEntry, book) : undefined;
+  const previewText = previewTocEntry ? buildTocPreviewText(previewTocEntry, book) : '';
   const annotationCards = useMemo(
     () => buildAnnotationCards(activeTranslation, activeSegment.sourceText),
     [activeTranslation, activeSegment.sourceText],
@@ -2539,49 +2584,6 @@ const ReaderView: React.FC<ReaderViewProps> = ({
           <div className="pointer-events-none absolute left-1/2 top-14 z-40 w-[min(520px,calc(100vw-2rem))] -translate-x-1/2">
             <StatusMessage statusMessage={statusMessage} errorMessage={errorMessage} compact floating />
           </div>
-          {isTocOpen && tocEntries.length > 0 && (
-            <div className="absolute left-1/2 top-12 z-30 max-h-[70vh] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 overflow-auto rounded-md border border-zinc-300 bg-[#ffffff] p-2 text-left shadow-xl">
-              <div className="flex items-center justify-between border-b border-zinc-200 px-2 py-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">{t('reader.contents')}</p>
-                <button
-                  type="button"
-                  onClick={() => setIsTocOpen(false)}
-                  className="flex h-7 w-7 items-center justify-center rounded-sm text-zinc-500 hover:bg-zinc-100"
-                  title={t('reader.closeContents')}
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="py-2">
-                {tocEntries.map((entry) => {
-                  const isActive = entry.segmentIndex === activeSegmentIndex;
-
-                  return (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      disabled={entry.segmentIndex === undefined}
-                      onClick={() => {
-                        if (entry.segmentIndex !== undefined) {
-                          onGoToSegment(entry.segmentIndex);
-                          setIsTocOpen(false);
-                        }
-                      }}
-                      className={`flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left text-sm leading-5 ${
-                        isActive ? 'bg-[#007aff] text-[#ffffff]' : 'text-zinc-700 hover:bg-zinc-100'
-                      } disabled:cursor-not-allowed disabled:text-zinc-400 disabled:hover:bg-transparent`}
-                      style={{ paddingLeft: `${8 + Math.min(entry.level, 4) * 14}px` }}
-                    >
-                      <span className="min-w-10 text-xs text-current opacity-60">
-                        {entry.pageNumber ? `p.${entry.pageNumber}` : entry.segmentIndex !== undefined ? `${entry.segmentIndex + 1}` : '-'}
-                      </span>
-                      <span>{entry.title}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
         <div className="flex items-center gap-2">
           <select
@@ -2622,8 +2624,17 @@ const ReaderView: React.FC<ReaderViewProps> = ({
     </header>
 
     <main className="min-h-0 flex-1 px-3 py-4 md:px-6">
-      <div className="mx-auto h-full w-[95vw] max-w-none">
-        <div className="grid h-full min-h-0 grid-rows-2 gap-4 lg:grid-cols-2 lg:grid-rows-none">
+      <div className="mx-auto flex h-full w-[95vw] max-w-none gap-4">
+        {tocEntries.length > 0 && isTocOpen && (
+          <TocSidebar
+            book={book}
+            entries={tocEntries}
+            activeSegmentIndex={activeSegmentIndex}
+            onClose={() => setIsTocOpen(false)}
+            onPreview={setPreviewTocEntry}
+          />
+        )}
+        <div className="grid h-full min-h-0 flex-1 grid-rows-2 gap-4 lg:grid-cols-2 lg:grid-rows-none">
           <BookPage
             body={activeSegment.sourceText}
             pdfUrl={book.fileType === 'pdf' ? book.sourceUrl : undefined}
@@ -2692,6 +2703,19 @@ const ReaderView: React.FC<ReaderViewProps> = ({
       </div>
     </main>
 
+    {previewTocEntry && (
+      <TocPreviewDialog
+        entry={previewTocEntry}
+        targetIndex={previewTargetIndex}
+        previewText={previewText}
+        onClose={() => setPreviewTocEntry(null)}
+        onGoToSegment={(segmentIndex) => {
+          onGoToSegment(segmentIndex);
+          setPreviewTocEntry(null);
+        }}
+      />
+    )}
+
     <button
       type="button"
       onClick={onPrevious}
@@ -2743,6 +2767,175 @@ const ReaderView: React.FC<ReaderViewProps> = ({
       />
     )}
   </div>
+  );
+};
+
+interface TocSidebarProps {
+  book: UploadedBook;
+  entries: TocEntry[];
+  activeSegmentIndex: number;
+  onClose: () => void;
+  onPreview: (entry: TocEntry) => void;
+}
+
+const TocSidebar: React.FC<TocSidebarProps> = ({ book, entries, activeSegmentIndex, onClose, onPreview }) => {
+  const { t } = useTranslation();
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
+  const childParentIds = useMemo(() => {
+    const parents = new Set<string>();
+
+    entries.forEach((entry, index) => {
+      const nextEntry = entries[index + 1];
+      if (nextEntry && nextEntry.level > entry.level) {
+        parents.add(entry.id);
+      }
+    });
+
+    return parents;
+  }, [entries]);
+  const visibleEntries = useMemo(() => {
+    const hiddenLevels: number[] = [];
+
+    return entries.filter((entry) => {
+      while (hiddenLevels.length && entry.level <= hiddenLevels[hiddenLevels.length - 1]) {
+        hiddenLevels.pop();
+      }
+
+      if (hiddenLevels.length) {
+        return false;
+      }
+
+      if (collapsedIds.has(entry.id)) {
+        hiddenLevels.push(entry.level);
+      }
+
+      return true;
+    });
+  }, [collapsedIds, entries]);
+
+  return (
+    <aside className="fixed bottom-4 left-3 top-[4.5rem] z-40 flex w-[min(18rem,calc(100vw-1.5rem))] shrink-0 flex-col overflow-hidden rounded-sm border border-zinc-300 bg-white shadow-[0_18px_50px_rgba(0,0,0,0.16)] xl:static xl:z-auto xl:h-full xl:w-72 xl:shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
+      <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">{t('reader.contents')}</p>
+          <p className="mt-1 truncate text-sm font-semibold text-zinc-900">{book.title}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-zinc-500 hover:bg-zinc-100"
+          title={t('reader.closeContents')}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-2">
+        {visibleEntries.map((entry) => {
+          const targetIndex = getTocEntryTargetIndex(entry, book);
+          const isActive = targetIndex === activeSegmentIndex;
+          const hasChildren = childParentIds.has(entry.id);
+          const isCollapsed = collapsedIds.has(entry.id);
+
+          return (
+            <div key={entry.id} className="flex items-start gap-1 rounded-sm">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!hasChildren) return;
+                  setCollapsedIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(entry.id)) {
+                      next.delete(entry.id);
+                    } else {
+                      next.add(entry.id);
+                    }
+                    return next;
+                  });
+                }}
+                disabled={!hasChildren}
+                className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-zinc-100 disabled:opacity-0"
+                title={isCollapsed ? t('reader.expandSection') : t('reader.collapseSection')}
+              >
+                {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                type="button"
+                disabled={targetIndex === undefined}
+                onClick={() => onPreview(entry)}
+                className={`min-w-0 flex-1 rounded-sm px-2 py-2 text-left text-sm leading-5 ${
+                  isActive ? 'bg-[#007aff] text-white' : 'text-zinc-700 hover:bg-zinc-100'
+                } disabled:cursor-not-allowed disabled:text-zinc-400 disabled:hover:bg-transparent`}
+                style={{ paddingLeft: `${6 + Math.min(entry.level, 5) * 12}px` }}
+                title={targetIndex === undefined ? t('reader.previewUnavailable') : t('reader.previewSection')}
+              >
+                <span className="block truncate font-medium">{entry.title}</span>
+                <span className="mt-0.5 block text-xs opacity-65">
+                  {entry.pageNumber ? `p.${entry.pageNumber}` : targetIndex !== undefined ? `${t('reader.segment')} ${targetIndex + 1}` : '-'}
+                </span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </aside>
+  );
+};
+
+interface TocPreviewDialogProps {
+  entry: TocEntry;
+  targetIndex?: number;
+  previewText: string;
+  onClose: () => void;
+  onGoToSegment: (segmentIndex: number) => void;
+}
+
+const TocPreviewDialog: React.FC<TocPreviewDialogProps> = ({ entry, targetIndex, previewText, onClose, onGoToSegment }) => {
+  const { t } = useTranslation();
+
+  return createPortal(
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-zinc-950/25 px-4 py-8 backdrop-blur-sm" onMouseDown={onClose}>
+      <section
+        className="flex max-h-[78vh] w-[min(680px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-zinc-300 bg-white shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('reader.sectionPreview')}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-zinc-200 px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">{t('reader.sectionPreview')}</p>
+            <h2 className="mt-1 text-lg font-semibold leading-6 text-zinc-950">{entry.title}</h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              {entry.pageNumber ? `p.${entry.pageNumber}` : targetIndex !== undefined ? `${t('reader.segment')} ${targetIndex + 1}` : t('reader.previewUnavailable')}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-zinc-500 hover:bg-zinc-100" title={t('common.close')}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+          {previewText ? (
+            <p className="whitespace-pre-wrap font-serif text-base leading-8 text-zinc-800">{previewText}</p>
+          ) : (
+            <p className="text-sm leading-6 text-zinc-600">{t('reader.previewUnavailable')}</p>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-zinc-200 bg-zinc-50 px-5 py-3">
+          <button type="button" onClick={onClose} className="h-9 rounded-md border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-100">
+            {t('common.close')}
+          </button>
+          <button
+            type="button"
+            disabled={targetIndex === undefined}
+            onClick={() => targetIndex !== undefined && onGoToSegment(targetIndex)}
+            className="h-9 rounded-md bg-[#007aff] px-3 text-sm font-medium text-white hover:bg-[#0066cc] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {t('reader.jumpToSection')}
+          </button>
+        </div>
+      </section>
+    </div>,
+    document.body,
   );
 };
 
