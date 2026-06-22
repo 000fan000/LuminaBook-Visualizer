@@ -3923,7 +3923,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
 
   return (
     <article ref={pageRef}
-      className="relative flex min-h-0 flex-col overflow-hidden rounded-sm border border-zinc-300 px-5 py-5 shadow-[0_18px_50px_rgba(0,0,0,0.08)] md:px-7"
+      className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-sm border border-zinc-300 px-5 py-5 shadow-[0_18px_50px_rgba(0,0,0,0.08)] md:px-7"
       style={mode === 'translation' ? { backgroundColor: readingTheme.background, color: readingTheme.textColor } : { backgroundColor: '#ffffff' }}
     >
     <SelectionToolbar
