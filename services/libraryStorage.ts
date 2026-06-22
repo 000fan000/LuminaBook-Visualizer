@@ -1,4 +1,5 @@
 import { BookMetadata, UploadedBook } from '../types';
+import { extractEpubCoverImage } from './bookIngestion';
 
 const DB_NAME = 'luminabook-reader';
 const DB_VERSION = 1;
@@ -108,12 +109,22 @@ export const loadBooksFromLibrary = async (): Promise<UploadedBook[]> => {
   try {
     const records = await runStoreRequest<StoredBook[]>('readonly', (store) => store.getAll());
 
-    return records
-      .sort((a, b) => b.storedAt.localeCompare(a.storedAt))
-      .map(({ sourceBlob, storedAt: _storedAt, metadataUpdatedAt: _metadataUpdatedAt, ...book }) => ({
-        ...book,
-        sourceUrl: sourceBlob ? URL.createObjectURL(sourceBlob) : undefined,
-      }));
+    const sortedRecords = records.sort((a, b) => b.storedAt.localeCompare(a.storedAt));
+
+    return Promise.all(
+      sortedRecords.map(async ({ sourceBlob, storedAt: _storedAt, metadataUpdatedAt: _metadataUpdatedAt, ...book }) => {
+        const backfilledCoverImageUrl =
+          book.coverImageUrl || !sourceBlob || book.fileType !== 'epub'
+            ? undefined
+            : await extractEpubCoverImage(sourceBlob).catch(() => undefined);
+
+        return {
+          ...book,
+          coverImageUrl: book.coverImageUrl || backfilledCoverImageUrl,
+          sourceUrl: sourceBlob ? URL.createObjectURL(sourceBlob) : undefined,
+        };
+      }),
+    );
   } catch {
     return [];
   }

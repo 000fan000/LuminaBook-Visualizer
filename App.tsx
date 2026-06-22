@@ -1079,6 +1079,9 @@ const App: React.FC = () => {
 
     const normalizedMetadata: BookMetadata = {
       title: metadata.title.trim() || targetBook.title,
+      originalTitle: metadata.originalTitle?.trim() || metadata.title.trim() || targetBook.originalTitle || targetBook.title,
+      subtitle: metadata.subtitle?.trim() || undefined,
+      translatedTitle: metadata.translatedTitle?.trim() || undefined,
       author: metadata.author?.trim() || undefined,
       publicationYear: metadata.publicationYear,
       country: metadata.country?.trim() || undefined,
@@ -1093,6 +1096,7 @@ const App: React.FC = () => {
         ).values(),
       ).slice(0, 12),
       description: metadata.description?.trim() || undefined,
+      coverImageUrl: metadata.coverImageUrl || targetBook.coverImageUrl,
     };
 
     try {
@@ -1137,7 +1141,7 @@ const App: React.FC = () => {
     persistActiveLlmProfile();
 
     try {
-      return await detectBookMetadata(targetBook, settings);
+      return await detectBookMetadata(targetBook, settings, motherLanguage);
     } finally {
       refreshEvaluationRecords();
     }
@@ -1150,6 +1154,9 @@ const App: React.FC = () => {
       originalFileName: item.fileName,
       fileType: item.fileType,
       title: item.title,
+      originalTitle: item.originalTitle || item.title,
+      subtitle: item.subtitle || '',
+      translatedTitle: item.translatedTitle || '',
       author: item.author || '',
       publicationYear: item.publicationYear ?? null,
       country: item.country || '',
@@ -1157,6 +1164,7 @@ const App: React.FC = () => {
       publisher: item.publisher || '',
       tags: item.tags || [],
       description: item.description || '',
+      coverImageUrl: item.coverImageUrl || '',
       pageCount: item.pageCount ?? null,
       segmentCount: item.segments.length,
     }));
@@ -2630,6 +2638,8 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
   const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const facts = book ? [book.publicationYear, book.country].filter(Boolean).join(' · ') : '';
+  const displayTitle = book?.originalTitle || book?.title || 'Upload a book to begin';
+  const displaySubtitle = book?.subtitle || book?.translatedTitle || '';
 
   return (
     <article className="group">
@@ -2637,20 +2647,38 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
         <button
           onClick={onOpenReader}
           disabled={!book}
-          className="flex aspect-[2/3] w-full flex-col justify-between overflow-hidden rounded-sm border border-stone-700 bg-stone-900 p-4 text-left text-[#fffdf8] shadow-[6px_8px_0_rgba(80,63,42,0.2)] transition hover:-translate-y-1 disabled:cursor-not-allowed disabled:opacity-50"
+          className="relative flex aspect-[2/3] w-full flex-col justify-between overflow-hidden rounded-sm border border-stone-700 bg-stone-900 p-4 text-left text-[#fffdf8] shadow-[6px_8px_0_rgba(80,63,42,0.2)] transition hover:-translate-y-1 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <div>
+          {book?.coverImageUrl ? (
+            <>
+              <img src={book.coverImageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-b from-black/65 via-black/20 to-black/80" />
+            </>
+          ) : (
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.16),transparent_30%),linear-gradient(150deg,#292524,#1c1917_58%,#57534e)]">
+              <BookOpen className="absolute bottom-14 right-4 h-16 w-16 text-white/10" />
+            </div>
+          )}
+          <div className="relative">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-300">
               {book?.fileType ? book.fileType.toUpperCase() : 'Empty'}
             </p>
-            <h3 className="mt-5 max-h-32 overflow-hidden text-xl font-semibold leading-tight">
-              {book?.title || 'Upload a book to begin'}
-            </h3>
-            <p className="mt-3 max-h-10 overflow-hidden text-xs leading-5 text-stone-300">
-              {book?.author || book?.fileName || 'Source file'}
-            </p>
-            {facts && <p className="mt-2 truncate text-[11px] text-stone-400">{facts}</p>}
-            {book?.tags && book.tags.length > 0 && (
+            {!book?.coverImageUrl && (
+              <>
+                <h3 className="mt-5 max-h-32 overflow-hidden text-xl font-semibold leading-tight">
+                  {displayTitle}
+                </h3>
+                {displaySubtitle && <p className="mt-2 max-h-12 overflow-hidden text-sm leading-5 text-stone-200">{displaySubtitle}</p>}
+                {book?.translatedTitle && book.subtitle && (
+                  <p className="mt-2 max-h-10 overflow-hidden text-xs leading-5 text-stone-300">{book.translatedTitle}</p>
+                )}
+                <p className="mt-3 max-h-10 overflow-hidden text-xs leading-5 text-stone-300">
+                  {book?.author || book?.fileName || 'Source file'}
+                </p>
+              </>
+            )}
+            {!book?.coverImageUrl && facts && <p className="mt-2 truncate text-[11px] text-stone-400">{facts}</p>}
+            {!book?.coverImageUrl && book?.tags && book.tags.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1">
                 {book.tags.slice(0, 3).map((tag) => (
                   <span key={tag} className="max-w-20 truncate rounded-sm bg-white/10 px-1.5 py-0.5 text-[10px] text-stone-200">
@@ -2660,7 +2688,7 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
               </div>
             )}
           </div>
-          <div>
+          <div className="relative">
             <div className="mb-2 h-1 overflow-hidden rounded-full bg-white/20">
               <div className="h-full rounded-full bg-[#f2eadc]" style={{ width: `${progress}%` }} />
             </div>
@@ -2746,9 +2774,22 @@ const MetadataField: React.FC<MetadataFieldProps> = ({ label, value, onChange, t
   </label>
 );
 
+const readImageFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Could not read cover image.'));
+    reader.readAsDataURL(file);
+  });
+
 const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, onSave, onAutoDetect }) => {
   const { t } = useTranslation();
+  const coverInputRef = useRef<HTMLInputElement | null>(null);
   const [title, setTitle] = useState(book.title);
+  const [originalTitle, setOriginalTitle] = useState(book.originalTitle || book.title);
+  const [subtitle, setSubtitle] = useState(book.subtitle || '');
+  const [translatedTitle, setTranslatedTitle] = useState(book.translatedTitle || '');
+  const [coverImageUrl, setCoverImageUrl] = useState(book.coverImageUrl || '');
   const [author, setAuthor] = useState(book.author || '');
   const [year, setYear] = useState(book.publicationYear ? String(book.publicationYear) : '');
   const [country, setCountry] = useState(book.country || '');
@@ -2782,6 +2823,9 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
       const detected = await onAutoDetect();
       const detectedCount = [
         !title.trim() && detected.title,
+        !originalTitle.trim() && detected.originalTitle,
+        !subtitle.trim() && detected.subtitle,
+        !translatedTitle.trim() && detected.translatedTitle,
         !author.trim() && detected.author,
         !year.trim() && detected.publicationYear,
         !country.trim() && detected.country,
@@ -2791,6 +2835,9 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
         !description.trim() && detected.description,
       ].filter(Boolean).length;
       setTitle((current) => current.trim() || detected.title || '');
+      setOriginalTitle((current) => current.trim() || detected.originalTitle || detected.title || '');
+      setSubtitle((current) => current.trim() || detected.subtitle || '');
+      setTranslatedTitle((current) => current.trim() || detected.translatedTitle || '');
       setAuthor((current) => current.trim() || detected.author || '');
       setYear((current) => current.trim() || (detected.publicationYear ? String(detected.publicationYear) : ''));
       setCountry((current) => current.trim() || detected.country || '');
@@ -2810,9 +2857,28 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
     }
   };
 
+  const uploadCover = async (file?: File) => {
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setValidationError('Choose a JPEG, PNG, WebP, GIF, or SVG cover image.');
+      return;
+    }
+
+    try {
+      setCoverImageUrl(await readImageFileAsDataUrl(file));
+      setValidationError('');
+    } catch {
+      setValidationError('Could not read the selected cover image.');
+    }
+  };
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     const normalizedTitle = title.trim();
+    const normalizedOriginalTitle = originalTitle.trim() || normalizedTitle;
     const normalizedYear = year.trim() ? Number.parseInt(year, 10) : undefined;
 
     if (!normalizedTitle) {
@@ -2831,6 +2897,9 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
     try {
       await onSave({
         title: normalizedTitle,
+        originalTitle: normalizedOriginalTitle,
+        subtitle,
+        translatedTitle,
         author,
         publicationYear: normalizedYear,
         country,
@@ -2838,6 +2907,7 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
         publisher,
         tags: tags.split(/[,，\n]/).map((tag) => tag.trim()).filter(Boolean),
         description,
+        coverImageUrl,
       });
       onClose();
     } catch {
@@ -2877,16 +2947,58 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
           </div>
         </div>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
-          <div className="md:col-span-2">
+        <div className="mt-5 grid gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
+          <div className="md:row-span-4">
+            <div className="aspect-[2/3] overflow-hidden rounded-sm border border-stone-300 bg-stone-900">
+              {coverImageUrl ? (
+                <img src={coverImageUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full flex-col justify-between border border-dashed border-white/20 bg-stone-900 p-4 text-[#fffdf8]">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-300">{book.fileType.toUpperCase()}</p>
+                  <div>
+                    <BookOpen className="mb-4 h-9 w-9 text-stone-400" />
+                    <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">{t('books.noCover')}</p>
+                    <p className="text-lg font-semibold leading-tight">{originalTitle || title}</p>
+                    {subtitle && <p className="mt-2 text-xs leading-5 text-stone-300">{subtitle}</p>}
+                  </div>
+                  <p className="text-xs text-stone-400">{author || book.fileName}</p>
+                </div>
+              )}
+            </div>
+            <input
+              ref={coverInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => {
+                uploadCover(event.target.files?.[0]);
+                event.currentTarget.value = '';
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => coverInputRef.current?.click()}
+              disabled={isBusy}
+              className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 hover:bg-white disabled:cursor-wait disabled:opacity-50"
+            >
+              <Upload className="h-4 w-4" />
+              {coverImageUrl ? t('books.replaceCover') : t('books.uploadCover')}
+            </button>
+          </div>
+          <div>
             <MetadataField label={t('books.title')} value={title} onChange={setTitle} />
           </div>
-          <MetadataField label={t('books.author')} value={author} onChange={setAuthor} />
-          <MetadataField label={t('books.year')} value={year} onChange={setYear} type="number" />
-          <MetadataField label={t('books.country')} value={country} onChange={setCountry} />
-          <MetadataField label={t('books.originalLanguage')} value={language} onChange={setLanguage} />
-          <MetadataField label={t('books.publisher')} value={publisher} onChange={setPublisher} />
-          <MetadataField label={t('books.tags')} value={tags} onChange={setTags} placeholder={t('books.tagsPlaceholder')} />
+          <MetadataField label={t('books.originalTitle')} value={originalTitle} onChange={setOriginalTitle} />
+          <MetadataField label={t('books.subtitle')} value={subtitle} onChange={setSubtitle} />
+          <MetadataField label={t('books.translatedTitle')} value={translatedTitle} onChange={setTranslatedTitle} />
+          <div className="md:col-span-2 grid gap-4 md:grid-cols-2">
+            <MetadataField label={t('books.author')} value={author} onChange={setAuthor} />
+            <MetadataField label={t('books.year')} value={year} onChange={setYear} type="number" />
+            <MetadataField label={t('books.country')} value={country} onChange={setCountry} />
+            <MetadataField label={t('books.originalLanguage')} value={language} onChange={setLanguage} />
+            <MetadataField label={t('books.publisher')} value={publisher} onChange={setPublisher} />
+            <MetadataField label={t('books.tags')} value={tags} onChange={setTags} placeholder={t('books.tagsPlaceholder')} />
+          </div>
           <label className="block md:col-span-2">
             <span className="text-xs font-medium text-stone-600">{t('books.description')}</span>
             <textarea

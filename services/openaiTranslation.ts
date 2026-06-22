@@ -239,6 +239,7 @@ const getBoundaryHandoffSourceText = (targetSourceText: string, nextPagePreview?
 export const detectBookMetadata = async (
   book: UploadedBook,
   settings: LlmSettings,
+  motherLanguage: string,
 ): Promise<Partial<BookMetadata>> => {
   if (!hasRequiredSettings(settings)) {
     throw new Error('Endpoint, API key, and model are required before metadata detection.');
@@ -257,6 +258,9 @@ export const detectBookMetadata = async (
 
 Return JSON with exactly these fields:
 - title: string or empty string
+- originalTitle: original source-language title or empty string
+- subtitle: subtitle in the source language or empty string
+- translatedTitle: title translated into the reader's mother language (${motherLanguage}) or empty string
 - author: string or empty string
 - publicationYear: integer or null
 - country: country most associated with the work's original publication or empty string
@@ -267,12 +271,17 @@ Return JSON with exactly these fields:
 
 Rules:
 - Prefer explicit title-page, copyright-page, filename, and table-of-contents evidence.
+- Use title and originalTitle for the original/source-language name. If the title is already in ${motherLanguage}, translatedTitle may match it.
+- Put subtitles only in subtitle, not appended to title.
 - Do not invent a publisher, year, country, or author when evidence is weak.
 - Do not include markdown.
 
 Filename: ${book.fileName}
 Current metadata: ${JSON.stringify({
           title: book.title,
+          originalTitle: book.originalTitle || book.title,
+          subtitle: book.subtitle || '',
+          translatedTitle: book.translatedTitle || '',
           author: book.author || '',
           publicationYear: book.publicationYear || null,
           country: book.country || '',
@@ -318,6 +327,9 @@ ${book.text.slice(0, 6000)}
 
   return {
     title: optionalMetadataText(parsed.title),
+    originalTitle: optionalMetadataText(parsed.originalTitle),
+    subtitle: optionalMetadataText(parsed.subtitle),
+    translatedTitle: optionalMetadataText(parsed.translatedTitle),
     author: optionalMetadataText(parsed.author),
     publicationYear,
     country: optionalMetadataText(parsed.country),

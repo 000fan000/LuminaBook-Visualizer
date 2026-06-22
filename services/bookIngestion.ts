@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
-import { SourceSegment, TocEntry, UploadedBook } from '../types';
+import { BookMetadata, SourceSegment, TocEntry, UploadedBook } from '../types';
 import { readPdfTextContent } from './pdfTextContent';
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -31,7 +31,7 @@ const normalizeFileName = (fileName: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const inferBookMetadata = (fileName: string) => {
+const inferBookMetadata = (fileName: string): BookMetadata => {
   const rawBaseName = fileName.replace(/\.[^.]+$/, '').replace(/\s+/g, ' ').trim();
   const rawWithoutBracketedYear = rawBaseName.replace(/\s*\((?:19|20)\d{2}[^)]*\)\s*$/g, '').trim();
   const authorTitleMatch = rawWithoutBracketedYear.match(/^(.+?)[_:]\s*(.+)$/);
@@ -93,6 +93,17 @@ const normalizeEpubHref = (href: string, basePath = '') =>
 const findZipEntryByPath = (zip: JSZip, normalizedPath: string) =>
   Object.values(zip.files).find((entry) => !entry.dir && normalizeEpubHref(entry.name) === normalizedPath);
 
+const getImageMediaTypeFromPath = (path: string) => {
+  const extension = getExtension(path);
+
+  if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
+  if (extension === 'png') return 'image/png';
+  if (extension === 'webp') return 'image/webp';
+  if (extension === 'gif') return 'image/gif';
+  if (extension === 'svg') return 'image/svg+xml';
+  return 'image/jpeg';
+};
+
 const getXmlElementsByLocalName = (root: Document | Element, localName: string) =>
   Array.from(root.getElementsByTagName('*')).filter((element) => element.localName === localName);
 
@@ -100,7 +111,52 @@ interface EpubPackageInfo {
   spineHrefs: string[];
   navHref?: string;
   ncxHref?: string;
+  metadata: Partial<BookMetadata>;
+  coverHref?: string;
+  coverMediaType?: string;
 }
+
+const getFirstMetadataText = (document: Document, localName: string) =>
+  normalizeWhitespace(getXmlElementsByLocalName(document, localName)[0]?.textContent || '');
+
+const readEpubTitleParts = (document: Document) => {
+  const titleElements = getXmlElementsByLocalName(document, 'title');
+  const metaElements = getXmlElementsByLocalName(document, 'meta');
+  const titleTypeByRef = new Map(
+    metaElements
+      .filter((meta) => meta.getAttribute('property') === 'title-type' && meta.getAttribute('refines'))
+      .map((meta) => [(meta.getAttribute('refines') || '').replace(/^#/, ''), normalizeWhitespace(meta.textContent || '').toLowerCase()]),
+  );
+  const titleByType = new Map(
+    titleElements
+      .map((title) => ({
+        id: title.getAttribute('id') || '',
+        text: normalizeWhitespace(title.textContent || ''),
+      }))
+      .filter((title) => title.text)
+      .map((title) => [titleTypeByRef.get(title.id) || '', title.text]),
+  );
+  const fallbackTitle = normalizeWhitespace(titleElements[0]?.textContent || '');
+
+  return {
+    title: titleByType.get('main') || fallbackTitle,
+    subtitle: titleByType.get('subtitle') || getFirstMetadataText(document, 'subtitle'),
+  };
+};
+
+const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+
+  return btoa(binary);
+};
+
+const imageEntryToDataUrl = async (entry: JSZip.JSZipObject, mediaType?: string) =>
+  `data:${mediaType || getImageMediaTypeFromPath(entry.name)};base64,${arrayBufferToBase64(await entry.async('arraybuffer'))}`;
 
 const readEpubPackageInfo = async (zip: JSZip): Promise<EpubPackageInfo | null> => {
   const containerEntry = findZipEntryByPath(zip, 'meta-inf/container.xml');
@@ -147,11 +203,37 @@ const readEpubPackageInfo = async (zip: JSZip): Promise<EpubPackageInfo | null> 
   const ncxHref =
     (spineTocId ? manifestById.get(spineTocId)?.href : undefined) ||
     manifestItems.find((item) => item.mediaType === 'application/x-dtbncx+xml')?.href;
+  const coverMetaId = getXmlElementsByLocalName(opfDocument, 'meta')
+    .find((meta) => meta.getAttribute('name')?.toLowerCase() === 'cover')
+    ?.getAttribute('content') || '';
+  const coverItem =
+    manifestItems.find((item) => item.properties.split(/\s+/).includes('cover-image')) ||
+    (coverMetaId ? manifestById.get(coverMetaId) : undefined) ||
+    manifestItems.find((item) => /^image\//i.test(item.mediaType) && /cover/i.test(item.id || item.href));
+  const titleParts = readEpubTitleParts(opfDocument);
+  const originalTitle = titleParts.title;
+  const subtitle = titleParts.subtitle;
+  const author = getFirstMetadataText(opfDocument, 'creator');
+  const language = getFirstMetadataText(opfDocument, 'language');
+  const publisher = getFirstMetadataText(opfDocument, 'publisher');
+  const dateText = getFirstMetadataText(opfDocument, 'date');
+  const yearMatch = dateText.match(/\b-?\d{1,4}\b/);
 
   return {
     spineHrefs,
     navHref,
     ncxHref,
+    metadata: {
+      title: originalTitle || undefined,
+      originalTitle: originalTitle || undefined,
+      subtitle: subtitle || undefined,
+      author: author || undefined,
+      language: language || undefined,
+      publisher: publisher || undefined,
+      publicationYear: yearMatch ? Number.parseInt(yearMatch[0], 10) : undefined,
+    },
+    coverHref: coverItem?.href,
+    coverMediaType: coverItem?.mediaType,
   };
 };
 
@@ -391,6 +473,29 @@ const resolveEpubToc = async (zip: JSZip, htmlFiles: JSZip.JSZipObject[], packag
   }
 
   return parseEpubNcxToc(await ncxEntry.async('text'), dirname(ncxEntry.name));
+};
+
+const findFallbackEpubCoverEntry = (zip: JSZip) =>
+  Object.values(zip.files)
+    .filter((entry) => !entry.dir && /\.(jpe?g|png|webp|gif|svg)$/i.test(entry.name))
+    .sort((a, b) => {
+      const coverScore = (entry: JSZip.JSZipObject) => {
+        const name = entry.name.toLowerCase();
+        if (/(^|\/)cover\.(jpe?g|png|webp|gif|svg)$/.test(name)) return 0;
+        if (/(^|\/)cover[^/]*\.(jpe?g|png|webp|gif|svg)$/.test(name)) return 1;
+        if (/cover/.test(name)) return 2;
+        return 3;
+      };
+
+      return coverScore(a) - coverScore(b) || a.name.localeCompare(b.name);
+    })[0];
+
+export const extractEpubCoverImage = async (source: Blob) => {
+  const zip = await JSZip.loadAsync(await source.arrayBuffer());
+  const packageInfo = await readEpubPackageInfo(zip);
+  const coverEntry = (packageInfo?.coverHref ? findZipEntryByPath(zip, packageInfo.coverHref) : null) || findFallbackEpubCoverEntry(zip);
+
+  return coverEntry ? imageEntryToDataUrl(coverEntry, packageInfo?.coverMediaType) : undefined;
 };
 
 const detectLanguage = (text: string) => {
@@ -721,6 +826,8 @@ const readEpub = async (file: File) => {
 
   const chapters: Array<{ href: string; text: string }> = [];
   const rawToc = await resolveEpubToc(zip, allHtmlFiles, packageInfo);
+  const coverEntry = (packageInfo?.coverHref ? findZipEntryByPath(zip, packageInfo.coverHref) : null) || findFallbackEpubCoverEntry(zip);
+  const coverImageUrl = coverEntry ? await imageEntryToDataUrl(coverEntry, packageInfo?.coverMediaType) : undefined;
 
   for (const entry of htmlFiles) {
     const html = await entry.async('text');
@@ -738,6 +845,10 @@ const readEpub = async (file: File) => {
     text: normalizeReadableText(chapters.map((chapter) => chapter.text).join('\n\n')),
     chapters,
     toc: rawToc,
+    metadata: {
+      ...packageInfo?.metadata,
+      coverImageUrl,
+    },
   };
 };
 
@@ -770,6 +881,11 @@ export const parseBookFile = async (file: File): Promise<UploadedBook> => {
     text = epub.text;
     segments = segmentEpubChapters(epub.chapters);
     toc = attachEpubTocTargets(epub.toc, segments);
+    Object.assign(metadata, {
+      ...epub.metadata,
+      title: epub.metadata.title || metadata.title,
+      originalTitle: epub.metadata.originalTitle || epub.metadata.title || metadata.title,
+    });
   } else {
     throw new Error('Unsupported file type. Upload a text-based PDF, TXT, or EPUB file.');
   }
@@ -781,7 +897,14 @@ export const parseBookFile = async (file: File): Promise<UploadedBook> => {
   return {
     id: `${file.name}-${file.size}-${file.lastModified}`,
     title: metadata.title,
+    originalTitle: metadata.originalTitle || metadata.title,
+    subtitle: metadata.subtitle,
+    translatedTitle: metadata.translatedTitle,
     author: metadata.author,
+    publicationYear: metadata.publicationYear,
+    language: metadata.language,
+    publisher: metadata.publisher,
+    coverImageUrl: metadata.coverImageUrl,
     fileName: file.name,
     fileType,
     text,

@@ -60,6 +60,8 @@ const resources = {
       books: {
         add: 'Add Book', edit: 'Edit book details', delete: 'Delete book', metadata: 'Library metadata',
         details: 'Book details', title: 'Title', author: 'Author', year: 'Publication year', country: 'Country',
+        originalTitle: 'Original title', subtitle: 'Subtitle', translatedTitle: 'Translated title',
+        uploadCover: 'Upload cover', replaceCover: 'Replace cover', noCover: 'No cover',
         originalLanguage: 'Original language', publisher: 'Publisher', tags: 'Tags', description: 'Description',
         tagsPlaceholder: 'classic, philosophy', close: 'Close',
       },
@@ -154,6 +156,8 @@ const resources = {
       books: {
         add: '添加书籍', edit: '编辑书籍信息', delete: '删除书籍', metadata: '书库元数据',
         details: '书籍详情', title: '书名', author: '作者', year: '出版年份', country: '国家',
+        originalTitle: '原名', subtitle: '副标题', translatedTitle: '母语译名',
+        uploadCover: '上传封面', replaceCover: '替换封面', noCover: '无封面',
         originalLanguage: '原始语言', publisher: '出版社', tags: '标签', description: '简介',
         tagsPlaceholder: '经典, 哲学', close: '关闭',
       },

@@ -1,5 +1,8 @@
 export interface BookMetadata {
   title: string;
+  originalTitle?: string;
+  subtitle?: string;
+  translatedTitle?: string;
   author?: string;
   publicationYear?: number;
   country?: string;
@@ -7,6 +10,7 @@ export interface BookMetadata {
   publisher?: string;
   tags?: string[];
   description?: string;
+  coverImageUrl?: string;
 }
 
 export interface UploadedBook extends BookMetadata {
