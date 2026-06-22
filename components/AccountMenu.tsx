@@ -1,5 +1,5 @@
 import React, { FormEvent, useCallback, useEffect, useState } from 'react';
-import { Activity, ExternalLink, KeyRound, Loader2, LogIn, LogOut, RefreshCw, Settings2, UserRound, X } from 'lucide-react';
+import { Activity, BookOpen, ExternalLink, KeyRound, Loader2, LogIn, LogOut, RefreshCw, Settings2, UserRound, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import {
   getAccountClient,
@@ -19,9 +19,18 @@ interface AccountMenuProps {
   motherLanguages: string[];
   onMotherLanguageChange: (language: string) => void;
   onOpenConfig: () => void;
+  onToggleReadingStyle?: () => void;
+  isReadingStyleOpen?: boolean;
 }
 
-export const AccountMenu: React.FC<AccountMenuProps> = ({ motherLanguage, motherLanguages, onMotherLanguageChange, onOpenConfig }) => {
+export const AccountMenu: React.FC<AccountMenuProps> = ({
+  motherLanguage,
+  motherLanguages,
+  onMotherLanguageChange,
+  onOpenConfig,
+  onToggleReadingStyle,
+  isReadingStyleOpen,
+}) => {
   const configured = isAccountSystemConfigured();
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -230,6 +239,21 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ motherLanguage, mother
             <Settings2 className="h-4 w-4" />
             设置 / Config
           </button>
+          {onToggleReadingStyle && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsOpen(false);
+                onToggleReadingStyle();
+              }}
+              className={`mt-2 flex h-10 w-full items-center justify-center gap-2 rounded-md border text-sm font-medium ${
+                isReadingStyleOpen ? 'border-[#007aff] bg-[#eef5ff] text-[#005bbb]' : 'border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50'
+              }`}
+            >
+              <BookOpen className="h-4 w-4" />
+              Reading style
+            </button>
+          )}
 
           {!configured && (
             <div className="mt-4 rounded-md border border-orange-300 bg-orange-50 p-3 text-sm text-orange-900">

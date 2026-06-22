@@ -743,13 +743,15 @@ const getPdfAnnotationColor = (annotation: any) => {
     return undefined;
   }
 
-  const values = Array.from(color).slice(0, 3).map((value) => Math.round(Number(value)));
+  const rawValues = Array.from(color).slice(0, 3).map((value) => Number(value));
+  const usesUnitColor = rawValues.length >= 3 && rawValues.every((value) => Number.isFinite(value) && value >= 0 && value <= 1);
+  const values = rawValues.map((value) => Math.round(usesUnitColor ? value * 255 : value));
 
   if (values.length < 3 || values.some((value) => !Number.isFinite(value))) {
     return undefined;
   }
 
-  return `#${values.map((value) => value.toString(16).padStart(2, '0')).join('')}`;
+  return `#${values.map((value) => Math.min(255, Math.max(0, value)).toString(16).padStart(2, '0')).join('')}`;
 };
 
 const getPdfAnnotationRect = (annotation: any): [number, number, number, number] | null => {
@@ -767,15 +769,40 @@ const getPdfAnnotationRect = (annotation: any): [number, number, number, number]
   ];
 };
 
+const getPdfAnnotationQuadRects = (annotation: any): Array<[number, number, number, number]> => {
+  const values = annotation.quadPoints ? Array.from(annotation.quadPoints).map(Number) : [];
+  const rects: Array<[number, number, number, number]> = [];
+
+  for (let index = 0; index + 7 < values.length; index += 8) {
+    const xs = [values[index], values[index + 2], values[index + 4], values[index + 6]];
+    const ys = [values[index + 1], values[index + 3], values[index + 5], values[index + 7]];
+
+    if ([...xs, ...ys].some((value) => !Number.isFinite(value))) {
+      continue;
+    }
+
+    rects.push([
+      Math.min(...xs),
+      Math.min(...ys),
+      Math.max(...xs),
+      Math.max(...ys),
+    ]);
+  }
+
+  return rects;
+};
+
 const rectanglesOverlap = (
   first: [number, number, number, number],
   second: [number, number, number, number],
 ) => first[0] <= second[2] && first[2] >= second[0] && first[1] <= second[3] && first[3] >= second[1];
 
 const extractPdfAnnotationText = async (page: any, annotation: any) => {
-  const rect = getPdfAnnotationRect(annotation);
+  const rects = getPdfAnnotationQuadRects(annotation);
+  const fallbackRect = getPdfAnnotationRect(annotation);
+  const hitRects = rects.length ? rects : fallbackRect ? [fallbackRect] : [];
 
-  if (!rect) {
+  if (!hitRects.length) {
     return '';
   }
 
@@ -799,7 +826,7 @@ const extractPdfAnnotationText = async (page: any, annotation: any) => {
       y + fontHeight,
     ];
 
-    if (!str || !rectanglesOverlap(rect, itemRect)) {
+    if (!str || !hitRects.some((rect) => rectanglesOverlap(rect, itemRect))) {
       continue;
     }
 

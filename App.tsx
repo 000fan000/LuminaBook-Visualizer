@@ -172,7 +172,7 @@ const STORAGE_KEYS = {
 
 type TextAlignment = 'left' | 'center' | 'justify';
 type TextFont = 'serif' | 'sans' | 'mono';
-type RightPaneMode = 'translation' | 'guide';
+type RightPaneMode = 'translation' | 'annotations' | 'argument' | 'links' | 'concepts' | 'history' | 'assistant';
 
 interface ReadingAgentMessage {
   role: 'user' | 'assistant';
@@ -426,6 +426,14 @@ const App: React.FC = () => {
   const [evaluationRecords, setEvaluationRecords] = useState<LlmEvaluationRecord[]>([]);
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  useEffect(() => {
+    if (!statusMessage) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setStatusMessage(''), 5000);
+    return () => window.clearTimeout(timer);
+  }, [statusMessage]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => readStorage<Bookmark[]>(STORAGE_KEYS.bookmarks, []));
   const [highlights, setHighlights] = useState<Highlight[]>(() => readStorage<Highlight[]>(STORAGE_KEYS.highlights, []));
   const [knowledgeCards, setKnowledgeCards] = useState<KnowledgeCard[]>(() =>
@@ -1568,10 +1576,22 @@ const App: React.FC = () => {
         statusMessage={statusMessage}
         errorMessage={errorMessage}
         onBack={() => setView('library')}
-        onOpenConfig={() => {
-          setView('library');
-          setIsConfigOpen(true);
-        }}
+        onOpenConfig={() => setIsConfigOpen(true)}
+        isConfigOpen={isConfigOpen}
+        isTestingProvider={isTestingProvider}
+        providerStatus={providerStatus}
+        evaluationRecords={evaluationRecords}
+        onSettingsChange={updateSettings}
+        onProviderChange={applyProvider}
+        onSaveCurrentLlmProfile={saveCurrentLlmProfile}
+        onSaveAsNewLlmProfile={saveAsNewLlmProfile}
+        onDeleteLlmProfile={deleteLlmProfile}
+        onExportLlmProfiles={exportLlmProfiles}
+        onImportLlmProfiles={importLlmProfiles}
+        onCloseConfig={() => setIsConfigOpen(false)}
+        onTestProvider={testProvider}
+        onExportEvaluationRecords={exportEvaluationRecords}
+        onClearEvaluationRecords={clearEvaluationRecords}
         onPrevious={() => moveSegment(-1)}
         onNext={() => moveSegment(1)}
         onGoToSegment={goToSegment}
@@ -1735,7 +1755,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
 
   return (
   <div className="min-h-screen bg-[#f5f5f7] text-zinc-950">
-    <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-6">
+    <header className="mx-auto flex w-[95vw] max-w-none items-center justify-between px-5 py-6">
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[#007aff] text-white">
           <Library className="h-5 w-5" />
@@ -1764,7 +1784,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       </div>
     </header>
 
-    <main className="mx-auto max-w-7xl px-5 pb-12 pt-6">
+    <main className="mx-auto w-[95vw] max-w-none px-5 pb-12 pt-6">
       <section>
         <div className="max-w-3xl">
           <p className="text-sm font-medium uppercase tracking-[0.18em] text-zinc-500">{t('library.eyebrow')}</p>
@@ -2255,6 +2275,21 @@ interface ReaderViewProps {
   errorMessage: string;
   onBack: () => void;
   onOpenConfig: () => void;
+  isConfigOpen: boolean;
+  isTestingProvider: boolean;
+  providerStatus: string;
+  evaluationRecords: LlmEvaluationRecord[];
+  onSettingsChange: <K extends keyof LlmSettings>(key: K, value: LlmSettings[K]) => void;
+  onProviderChange: (providerId: string) => void;
+  onSaveCurrentLlmProfile: () => void;
+  onSaveAsNewLlmProfile: () => void;
+  onDeleteLlmProfile: (profileId: string) => void;
+  onExportLlmProfiles: () => void;
+  onImportLlmProfiles: (file: File | null) => void;
+  onCloseConfig: () => void;
+  onTestProvider: () => void;
+  onExportEvaluationRecords: () => void;
+  onClearEvaluationRecords: () => void;
   onPrevious: () => void;
   onNext: () => void;
   onGoToSegment: (segmentIndex: number) => void;
@@ -2322,6 +2357,21 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   errorMessage,
   onBack,
   onOpenConfig,
+  isConfigOpen,
+  isTestingProvider,
+  providerStatus,
+  evaluationRecords,
+  onSettingsChange,
+  onProviderChange,
+  onSaveCurrentLlmProfile,
+  onSaveAsNewLlmProfile,
+  onDeleteLlmProfile,
+  onExportLlmProfiles,
+  onImportLlmProfiles,
+  onCloseConfig,
+  onTestProvider,
+  onExportEvaluationRecords,
+  onClearEvaluationRecords,
   onPrevious,
   onNext,
   onGoToSegment,
@@ -2358,7 +2408,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isTocOpen, setIsTocOpen] = useState(false);
-  const [isAgentOpen, setIsAgentOpen] = useState(false);
+  const [isTranslationFormatOpen, setIsTranslationFormatOpen] = useState(false);
   const [sourceShowHighlights, setSourceShowHighlights] = useState(true);
   const [sourceShowKnowledgeCards, setSourceShowKnowledgeCards] = useState(true);
   const [sourceIsFormatOpen, setSourceIsFormatOpen] = useState(false);
@@ -2367,7 +2417,6 @@ const ReaderView: React.FC<ReaderViewProps> = ({
     () => buildAnnotationCards(activeTranslation, activeSegment.sourceText),
     [activeTranslation, activeSegment.sourceText],
   );
-  const canFormatSourceText = book.fileType !== 'pdf';
   const handleSourceHighlightControl = () => {
     if (getSelectedReaderText()) {
       onAddHighlight('original');
@@ -2386,11 +2435,55 @@ const ReaderView: React.FC<ReaderViewProps> = ({
 
     setSourceShowKnowledgeCards((current) => !current);
   };
+  const canGoPrevious = activeSegmentIndex > 0;
+  const canGoNext = activeSegmentIndex < book.segments.length - 1;
+  const readingPositionProgress = book.segments.length
+    ? Math.round(((activeSegmentIndex + 1) / book.segments.length) * 100)
+    : 0;
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable);
+
+      if (isTyping || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
+        return;
+      }
+
+      if ((event.key === 'ArrowLeft' || event.key === 'PageUp') && canGoPrevious) {
+        event.preventDefault();
+        onPrevious();
+      }
+
+      if ((event.key === 'ArrowRight' || event.key === 'PageDown') && canGoNext) {
+        event.preventDefault();
+        onNext();
+      }
+
+      if (event.key === 'Home' && canGoPrevious) {
+        event.preventDefault();
+        onGoToSegment(0);
+      }
+
+      if (event.key === 'End' && canGoNext) {
+        event.preventDefault();
+        onGoToSegment(book.segments.length - 1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [book.segments.length, canGoPrevious, canGoNext, onGoToSegment, onPrevious, onNext]);
 
   return (
-  <div className="flex h-screen flex-col overflow-hidden bg-[#f5f5f7] text-zinc-950">
-    <header className="z-20 shrink-0 border-b border-zinc-300/70 bg-[#f5f5f7]/95 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 md:px-6">
+  <div className="relative flex h-screen flex-col overflow-hidden bg-[#f5f5f7] text-zinc-950">
+    <header className="relative z-20 shrink-0 border-b border-zinc-300/70 bg-[#f5f5f7]/95 backdrop-blur">
+      <div className="mx-auto flex h-14 w-[95vw] max-w-none items-center justify-between px-4 md:px-6">
         <div className="flex min-w-0 items-center gap-2">
           <button onClick={onBack} className="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-zinc-700 hover:bg-zinc-200/60">
             <ArrowLeft className="h-4 w-4" />
@@ -2422,19 +2515,6 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             >
               <FileText className="h-3.5 w-3.5" />
             </button>
-            {canFormatSourceText && (
-              <button
-                type="button"
-                onClick={() => setSourceIsFormatOpen((current) => !current)}
-                className={`flex h-7 w-7 items-center justify-center rounded border ${
-                  sourceIsFormatOpen ? 'border-blue-400 bg-white text-blue-700' : 'border-transparent text-zinc-500 hover:bg-white'
-                }`}
-                title={t('reader.tuneOriginal')}
-                aria-pressed={sourceIsFormatOpen}
-              >
-                <BookOpen className="h-3.5 w-3.5" />
-              </button>
-            )}
           </div>
         </div>
         <div className="relative min-w-0 px-4 text-center">
@@ -2448,7 +2528,17 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             <span className="truncate">{book.title}</span>
             <ListTree className={`h-4 w-4 shrink-0 ${tocEntries.length ? 'text-zinc-600' : 'text-zinc-300'}`} />
           </button>
-          <p className="text-xs text-zinc-500">{getSourcePageLabel(activeSegment)}</p>
+          <div className="mt-1 flex items-center justify-center gap-2 text-xs text-zinc-500">
+            <span>{getSourcePageLabel(activeSegment)}</span>
+            <span className="text-zinc-300">/</span>
+            <span>{activeSegmentIndex + 1} of {book.segments.length}</span>
+            <span className="text-zinc-300">/</span>
+            <span>{progress}% translated</span>
+            {isTranslating && <span className="text-blue-600">LLM {llmElapsedSeconds}s</span>}
+          </div>
+          <div className="pointer-events-none absolute left-1/2 top-14 z-40 w-[min(520px,calc(100vw-2rem))] -translate-x-1/2">
+            <StatusMessage statusMessage={statusMessage} errorMessage={errorMessage} compact floating />
+          </div>
           {isTocOpen && tocEntries.length > 0 && (
             <div className="absolute left-1/2 top-12 z-30 max-h-[70vh] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 overflow-auto rounded-md border border-zinc-300 bg-[#ffffff] p-2 text-left shadow-xl">
               <div className="flex items-center justify-between border-b border-zinc-200 px-2 py-2">
@@ -2516,33 +2606,26 @@ const ReaderView: React.FC<ReaderViewProps> = ({
           >
             <BookmarkIcon className={`h-4 w-4 ${isBookmarked ? 'fill-current' : ''}`} />
           </button>
-          <button
-            onClick={onTranslateCurrent}
-            disabled={isTranslating}
-            className="flex h-9 items-center gap-2 rounded-md bg-[#007aff] px-3 text-sm font-medium text-[#ffffff] hover:bg-[#0066cc] disabled:cursor-wait disabled:opacity-50"
-          >
-            {isTranslating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {isTranslating ? t('reader.translating', { seconds: llmElapsedSeconds }) : t('reader.translate')}
-          </button>
-          <AccountMenu
-            motherLanguage={motherLanguage}
-            motherLanguages={MOTHER_LANGUAGES}
-            onMotherLanguageChange={onMotherLanguageChange}
-            onOpenConfig={onOpenConfig}
-          />
+        <AccountMenu
+          motherLanguage={motherLanguage}
+          motherLanguages={MOTHER_LANGUAGES}
+          onMotherLanguageChange={onMotherLanguageChange}
+          onOpenConfig={onOpenConfig}
+          onToggleReadingStyle={translationReadingTheme ? () => setIsTranslationFormatOpen((current) => !current) : undefined}
+          isReadingStyleOpen={isTranslationFormatOpen}
+        />
         </div>
+      </div>
+      <div className="absolute inset-x-0 bottom-0 h-0.5 bg-zinc-200">
+        <div className="h-full bg-[#007aff]" style={{ width: `${readingPositionProgress}%` }} />
       </div>
     </header>
 
     <main className="min-h-0 flex-1 px-3 py-4 md:px-6">
-      <div className="mx-auto h-full max-w-7xl">
+      <div className="mx-auto h-full w-[95vw] max-w-none">
         <div className="grid h-full min-h-0 grid-rows-2 gap-4 lg:grid-cols-2 lg:grid-rows-none">
           <BookPage
-            eyebrow={t('reader.original')}
-            title={activeSegment.sourceLanguage}
             body={activeSegment.sourceText}
-            footnotes={activeSegment.footnotes}
-            pageLabel={getSourcePageLabel(activeSegment)}
             pdfUrl={book.fileType === 'pdf' ? book.sourceUrl : undefined}
             pdfData={book.fileType === 'pdf' ? book.sourceData : undefined}
             pdfPage={activeSegment.firstPage}
@@ -2562,6 +2645,8 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             showKnowledgeCards={sourceShowKnowledgeCards}
             onShowKnowledgeCardsChange={setSourceShowKnowledgeCards}
             isFormatOpen={sourceIsFormatOpen}
+            onToggleFormat={() => setSourceIsFormatOpen((current) => !current)}
+            onCloseFormat={() => setSourceIsFormatOpen(false)}
             onThemeChange={onSourceThemeChange}
             onApplyTheme={onApplySourceTheme}
             onSaveTheme={onSaveSourceTheme}
@@ -2575,7 +2660,13 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             readingThemes={readingThemes}
             mode={rightPaneMode}
             note={note}
-            pageLabel={getSourcePageLabel(activeSegment)}
+            isFormatOpen={isTranslationFormatOpen}
+            onToggleFormat={() => setIsTranslationFormatOpen((current) => !current)}
+            onCloseFormat={() => setIsTranslationFormatOpen(false)}
+            isTranslating={isTranslating}
+            llmElapsedSeconds={llmElapsedSeconds}
+            onTranslateCurrent={onTranslateCurrent}
+            onTranslateNext={onTranslateNext}
             highlights={highlights}
             knowledgeCards={knowledgeCards}
             pdfAnnotations={activeSegment.pdfAnnotations || []}
@@ -2593,63 +2684,64 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             onNoteChange={onNoteChange}
             onRespondToNote={onRespondToNote}
             isRespondingToNote={isRespondingToNote}
+            readingAgentMessages={readingAgentMessages}
+            isReadingAgentResponding={isReadingAgentResponding}
+            onSendReadingAgentMessage={onSendReadingAgentMessage}
           />
         </div>
       </div>
     </main>
 
-    <footer className="shrink-0 border-t border-zinc-300/70 bg-[#f5f5f7]/95 px-4 py-3 backdrop-blur md:px-6">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onPrevious}
-            disabled={activeSegmentIndex === 0}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 bg-[#ffffff] text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
-            title={t('reader.previous')}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            onClick={onNext}
-            disabled={activeSegmentIndex === book.segments.length - 1}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 bg-[#ffffff] text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
-            title={t('reader.next')}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="min-w-[180px] flex-1 md:max-w-md">
-          <div className="h-1.5 overflow-hidden rounded-full bg-zinc-300">
-            <div className="h-full rounded-full bg-[#007aff]" style={{ width: `${progress}%` }} />
-          </div>
-          <p className="mt-1 text-center text-xs text-zinc-500">
-            {activeSegmentIndex + 1} / {book.segments.length} · {progress}% translated
-            {isTranslating && ` · LLM ${llmElapsedSeconds}s`}
-          </p>
-        </div>
-
-        <button
-          onClick={onTranslateNext}
-          disabled={isTranslating}
-          className="flex h-9 items-center gap-2 rounded-md border border-zinc-300 bg-[#ffffff] px-3 text-sm font-medium text-zinc-800 hover:bg-white disabled:cursor-wait disabled:opacity-50"
-        >
-          {isTranslating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          {isTranslating ? `${llmElapsedSeconds}s` : t('reader.translateNext')}
-        </button>
-      </div>
-      <div className="mx-auto mt-2 max-w-7xl">
-        <StatusMessage statusMessage={statusMessage} errorMessage={errorMessage} compact />
-      </div>
-    </footer>
-    <ReadingAgentPanel
-      isOpen={isAgentOpen}
-      onOpenChange={setIsAgentOpen}
-      messages={readingAgentMessages}
-      isResponding={isReadingAgentResponding}
-      onSend={onSendReadingAgentMessage}
-      passageLabel={getSourcePageLabel(activeSegment)}
-    />
+    <button
+      type="button"
+      onClick={onPrevious}
+      disabled={!canGoPrevious}
+      className="group absolute left-0 top-14 z-20 flex h-[calc(100%-3.5rem)] w-16 items-center justify-start pl-3 opacity-0 transition hover:opacity-100 focus:opacity-100 disabled:pointer-events-none"
+      title={t('reader.previous')}
+      aria-label={t('reader.previous')}
+    >
+      <span className="flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white/90 text-zinc-700 shadow-lg backdrop-blur transition group-hover:-translate-x-0.5">
+        <ChevronLeft className="h-5 w-5" />
+      </span>
+    </button>
+    <button
+      type="button"
+      onClick={onNext}
+      disabled={!canGoNext}
+      className="group absolute right-0 top-14 z-20 flex h-[calc(100%-3.5rem)] w-16 items-center justify-end pr-3 opacity-0 transition hover:opacity-100 focus:opacity-100 disabled:pointer-events-none"
+      title={t('reader.next')}
+      aria-label={t('reader.next')}
+    >
+      <span className="flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white/90 text-zinc-700 shadow-lg backdrop-blur transition group-hover:translate-x-0.5">
+        <ChevronRight className="h-5 w-5" />
+      </span>
+    </button>
+    {isConfigOpen && (
+      <ConfigDialog
+        motherLanguage={motherLanguage}
+        settings={settings}
+        llmProfiles={llmProfiles}
+        activeLlmProfileId={activeLlmProfileId}
+        isTestingProvider={isTestingProvider}
+        providerStatus={providerStatus}
+        evaluationRecords={evaluationRecords}
+        llmElapsedSeconds={llmElapsedSeconds}
+        errorMessage={errorMessage}
+        onMotherLanguageChange={onMotherLanguageChange}
+        onSettingsChange={onSettingsChange}
+        onProviderChange={onProviderChange}
+        onSelectLlmProfile={onSelectLlmProfile}
+        onSaveCurrentLlmProfile={onSaveCurrentLlmProfile}
+        onSaveAsNewLlmProfile={onSaveAsNewLlmProfile}
+        onDeleteLlmProfile={onDeleteLlmProfile}
+        onExportLlmProfiles={onExportLlmProfiles}
+        onImportLlmProfiles={onImportLlmProfiles}
+        onClose={onCloseConfig}
+        onTestProvider={onTestProvider}
+        onExportEvaluationRecords={onExportEvaluationRecords}
+        onClearEvaluationRecords={onClearEvaluationRecords}
+      />
+    )}
   </div>
   );
 };
@@ -2711,7 +2803,6 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const facts = book ? [book.publicationYear, book.country].filter(Boolean).join(' · ') : '';
   const displayTitle = book?.originalTitle || book?.title || 'Upload a book to begin';
-  const displaySubtitle = book?.subtitle || book?.translatedTitle || '';
 
   return (
     <article className="group">
@@ -2740,10 +2831,6 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
                 <h3 className="mt-5 max-h-32 overflow-hidden text-xl font-semibold leading-tight">
                   {displayTitle}
                 </h3>
-                {displaySubtitle && <p className="mt-2 max-h-12 overflow-hidden text-sm leading-5 text-zinc-200">{displaySubtitle}</p>}
-                {book?.translatedTitle && book.subtitle && (
-                  <p className="mt-2 max-h-10 overflow-hidden text-xs leading-5 text-zinc-300">{book.translatedTitle}</p>
-                )}
                 <p className="mt-3 max-h-10 overflow-hidden text-xs leading-5 text-zinc-300">
                   {book?.author || book?.fileName || 'Source file'}
                 </p>
@@ -3031,7 +3118,6 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
                     <BookOpen className="mb-4 h-9 w-9 text-zinc-400" />
                     <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400">{t('books.noCover')}</p>
                     <p className="text-lg font-semibold leading-tight">{originalTitle || title}</p>
-                    {subtitle && <p className="mt-2 text-xs leading-5 text-zinc-300">{subtitle}</p>}
                   </div>
                   <p className="text-xs text-zinc-400">{author || book.fileName}</p>
                 </div>
@@ -3100,11 +3186,7 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
 };
 
 interface BookPageProps {
-  eyebrow: string;
-  title: string;
   body: string;
-  footnotes: string[];
-  pageLabel: string;
   pdfUrl?: string;
   pdfData?: ArrayBuffer;
   pdfPage?: number;
@@ -3124,6 +3206,8 @@ interface BookPageProps {
   showKnowledgeCards: boolean;
   onShowKnowledgeCardsChange: (show: boolean) => void;
   isFormatOpen: boolean;
+  onToggleFormat: () => void;
+  onCloseFormat: () => void;
   onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
   onApplyTheme: (themeId: string) => void;
   onSaveTheme: () => void;
@@ -3183,6 +3267,36 @@ const buildPdfAnnotationMarks = (annotations: EmbeddedPdfAnnotation[]): ReaderMa
       text: annotation.text,
       kind: annotation.kind === 'highlight' || annotation.kind === 'underline' ? 'highlight' : 'knowledge',
     }));
+
+const PDF_COLOR_LABELS: Record<string, string> = {
+  '#fff76a': 'Yellow',
+  '#ffc677': 'Orange',
+  '#96d35f': 'Green',
+  '#f4a3c0': 'Pink',
+  '#93e2fc': 'Blue',
+  '#d6d6d6': 'Gray',
+};
+
+const getPdfAnnotationColor = (annotation: EmbeddedPdfAnnotation) => annotation.color?.toLowerCase() || 'uncolored';
+
+const getPdfAnnotationColorLabel = (color: string) =>
+  color === 'uncolored' ? 'Uncolored' : PDF_COLOR_LABELS[color.toLowerCase()] || color.toUpperCase();
+
+const groupPdfAnnotationsByColor = (annotations: EmbeddedPdfAnnotation[]) => {
+  const grouped = new Map<string, EmbeddedPdfAnnotation[]>();
+
+  annotations.forEach((annotation) => {
+    const color = getPdfAnnotationColor(annotation);
+    grouped.set(color, [...(grouped.get(color) || []), annotation]);
+  });
+
+  return Array.from(grouped.entries())
+    .map(([color, items]) => ({
+      color,
+      items: items.sort((a, b) => a.pageNumber - b.pageNumber || a.id.localeCompare(b.id)),
+    }))
+    .sort((a, b) => b.items.length - a.items.length || getPdfAnnotationColorLabel(a.color).localeCompare(getPdfAnnotationColorLabel(b.color)));
+};
 
 const getReaderMarkPhrases = (mark: ReaderMark) =>
   Array.from(new Set([mark.text.trim(), ...mark.text.split(/\r?\n/).map((line) => line.trim())]))
@@ -3304,11 +3418,7 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({ containerRef, onHig
 };
 
 const BookPage: React.FC<BookPageProps> = ({
-  eyebrow,
-  title,
   body,
-  footnotes,
-  pageLabel,
   pdfUrl,
   pdfData,
   pdfPage,
@@ -3328,6 +3438,8 @@ const BookPage: React.FC<BookPageProps> = ({
   showKnowledgeCards,
   onShowKnowledgeCardsChange,
   isFormatOpen,
+  onToggleFormat,
+  onCloseFormat,
   onThemeChange,
   onApplyTheme,
   onSaveTheme,
@@ -3343,14 +3455,6 @@ const BookPage: React.FC<BookPageProps> = ({
   const pdfAnnotationMarks = useMemo(() => buildPdfAnnotationMarks(pdfAnnotations), [pdfAnnotations]);
   const visiblePdfMarks = showHighlights || showKnowledgeCards ? pdfAnnotationMarks : [];
   const visiblePdfAnnotationCards = showKnowledgeCards ? pdfAnnotationCards : [];
-  const sectionStyle = readingTheme
-    ? {
-        color: getSubduedTextColor(readingTheme),
-        borderColor: getPageFrameSeparatorColor(readingTheme),
-        backgroundColor: getPageFrameBackground(readingTheme),
-      }
-    : undefined;
-
   return (
   <article ref={pageRef}
     className="relative flex min-h-0 flex-col overflow-hidden rounded-sm border border-zinc-300 px-7 py-6 shadow-[0_18px_50px_rgba(0,0,0,0.08)] md:px-10"
@@ -3362,21 +3466,9 @@ const BookPage: React.FC<BookPageProps> = ({
       onDefine={(text) => { onDefineSelection(text); onShowKnowledgeCardsChange(true); }}
       isDefining={isDefiningSelection}
     />
-    <div
-      className="-mx-3 mb-8 flex flex-wrap items-center justify-between gap-3 border-b border-zinc-300 bg-zinc-50/80 px-3 pb-4 pt-1 text-zinc-500 md:-mx-5 md:px-5"
-      style={sectionStyle}
-    >
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">{eyebrow}</p>
-        <h2 className="mt-1 text-sm font-medium text-zinc-600">{title}</h2>
-      </div>
-      <div className="flex items-center justify-end">
-        <span className="text-xs text-zinc-400">{pageLabel}</span>
-      </div>
-    </div>
 
     {pdfUrl ? (
-      <div className="min-h-0 flex-1 overflow-auto rounded-sm border border-zinc-200 bg-zinc-100 p-3">
+      <div className="min-h-0 flex-1 overflow-auto bg-zinc-100 p-2">
         {hoverHighlightText && (
           <div className="mb-3 rounded-sm border border-orange-300 bg-yellow-100 px-3 py-2 text-sm leading-6 text-orange-950 shadow-sm">
             {hoverHighlightText}
@@ -3392,6 +3484,17 @@ const BookPage: React.FC<BookPageProps> = ({
       </div>
     ) : (
       <div className="min-h-0 flex-1 overflow-auto pr-2">
+        {readingTheme && (
+          <button
+            type="button"
+            onClick={onToggleFormat}
+            className="sticky right-0 top-0 z-10 float-right mb-2 ml-3 flex h-8 w-8 items-center justify-center rounded-md border border-zinc-300 bg-white/90 text-zinc-600 shadow-sm backdrop-blur hover:bg-white"
+            title={t('reader.tuneOriginal')}
+            aria-pressed={isFormatOpen}
+          >
+            <BookOpen className="h-4 w-4" />
+          </button>
+        )}
         <FormattedReadingText
           text={body}
           muted={muted}
@@ -3409,30 +3512,11 @@ const BookPage: React.FC<BookPageProps> = ({
             onThemeChange={onThemeChange}
             onApplyTheme={onApplyTheme}
             onSaveTheme={onSaveTheme}
+            onClose={onCloseFormat}
           />
         )}
       </div>
     )}
-
-    <div
-      className="-mx-3 mt-5 max-h-28 shrink-0 overflow-auto border-t border-zinc-300 bg-zinc-50/70 px-3 pt-5 text-zinc-500 md:-mx-5 md:px-5"
-      style={sectionStyle}
-    >
-      {footnotes.length ? (
-        <ol className="space-y-2 text-xs leading-5 text-zinc-600">
-          {footnotes.map((note, index) => (
-            <li key={`${note}-${index}`} className="grid grid-cols-[24px_1fr] gap-2">
-              <span className="text-zinc-400">{index + 1}</span>
-              <span>{note}</span>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p className="text-xs italic text-zinc-400">
-          {pdfUrl ? 'Original notes remain visible in the PDF page above.' : 'No footnotes on this page.'}
-        </p>
-      )}
-    </div>
   </article>
   );
 };
@@ -3446,7 +3530,13 @@ interface RightReaderPaneProps {
   readingThemes: ReadingTheme[];
   mode: RightPaneMode;
   note: ReaderNote | null;
-  pageLabel: string;
+  isFormatOpen: boolean;
+  onToggleFormat: () => void;
+  onCloseFormat: () => void;
+  isTranslating: boolean;
+  llmElapsedSeconds: number;
+  onTranslateCurrent: () => void;
+  onTranslateNext: () => void;
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
   pdfAnnotations: EmbeddedPdfAnnotation[];
@@ -3464,6 +3554,9 @@ interface RightReaderPaneProps {
   onNoteChange: (body: string) => void;
   onRespondToNote: () => void;
   isRespondingToNote: boolean;
+  readingAgentMessages: ReadingAgentMessage[];
+  isReadingAgentResponding: boolean;
+  onSendReadingAgentMessage: (content: string) => void;
 }
 
 const RightReaderPane: React.FC<RightReaderPaneProps> = ({
@@ -3475,7 +3568,13 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   readingThemes,
   mode,
   note,
-  pageLabel,
+  isFormatOpen,
+  onToggleFormat,
+  onCloseFormat,
+  isTranslating,
+  llmElapsedSeconds,
+  onTranslateCurrent,
+  onTranslateNext,
   highlights,
   knowledgeCards,
   pdfAnnotations,
@@ -3493,105 +3592,69 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   onNoteChange,
   onRespondToNote,
   isRespondingToNote,
+  readingAgentMessages,
+  isReadingAgentResponding,
+  onSendReadingAgentMessage,
 }) => {
   const { t } = useTranslation();
   const pageRef = useRef<HTMLElement>(null);
-  const [isFormatOpen, setIsFormatOpen] = useState(false);
-  const [showHighlights, setShowHighlights] = useState(true);
-  const [showKnowledgeCards, setShowKnowledgeCards] = useState(true);
+  const modeLabels: Record<RightPaneMode, string> = {
+    translation: 'Translation',
+    annotations: 'Annotations',
+    argument: 'Argument',
+    links: 'Links',
+    concepts: 'Concepts',
+    history: 'History',
+    assistant: 'AI',
+  };
+  const workspaceModes: RightPaneMode[] = ['translation', 'annotations', 'argument', 'links', 'concepts', 'history', 'assistant'];
   const noteAnchors = useMemo(
     () => buildNoteHoverAnchors(note?.llmResponse || '', sourceText),
     [note?.llmResponse, sourceText],
   );
   const translationMarks = buildReaderMarks(
-    showHighlights ? highlights.filter((highlight) => highlight.pageSide === 'translation') : [],
-    showKnowledgeCards ? knowledgeCards.filter((card) => card.pageSide === 'translation') : [],
+    highlights.filter((highlight) => highlight.pageSide === 'translation'),
+    knowledgeCards.filter((card) => card.pageSide === 'translation'),
   );
-  const handleHighlightClick = () => {
-    if (getSelectedReaderText()) {
-      onAddHighlight();
-      setShowHighlights(true);
-      return;
-    }
-    setShowHighlights((current) => !current);
-  };
-  const handleKnowledgeCardClick = () => {
-    if (getSelectedReaderText()) {
-      onCreateKnowledgeCard();
-      setShowKnowledgeCards(true);
-      return;
-    }
-    setShowKnowledgeCards((current) => !current);
-  };
 
   return (
     <article ref={pageRef}
-      className="relative flex min-h-0 flex-col overflow-hidden rounded-sm border border-zinc-300 px-7 py-6 shadow-[0_18px_50px_rgba(0,0,0,0.08)] md:px-10"
+      className="relative flex min-h-0 flex-col overflow-hidden rounded-sm border border-zinc-300 px-5 py-5 shadow-[0_18px_50px_rgba(0,0,0,0.08)] md:px-7"
       style={mode === 'translation' ? { backgroundColor: readingTheme.background, color: readingTheme.textColor } : { backgroundColor: '#ffffff' }}
     >
     <SelectionToolbar
       containerRef={pageRef}
-      onHighlight={(text) => { onAddHighlight(text); setShowHighlights(true); }}
-      onDefine={(text) => { onDefineSelection(text); setShowKnowledgeCards(true); }}
+      onHighlight={onAddHighlight}
+      onDefine={onDefineSelection}
       isDefining={isDefiningSelection}
     />
-    <div className="mb-6 flex items-center justify-between gap-3 border-b border-zinc-200 pb-4">
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-          {mode === 'translation' ? t('reader.translation', { language: motherLanguage }) : t('reader.guide')}
-        </p>
-        <h2 className="mt-1 text-sm font-medium text-zinc-700">
-          {mode === 'translation'
-            ? activeTranslation
-              ? t('reader.generatedTranslation')
-              : t('reader.waitingTranslation')
-            : t('reader.guideDescription')}
-        </h2>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="flex rounded-md border border-zinc-300 bg-[#f2f2f7] p-1">
-          {(['translation', 'guide'] as const).map((item) => (
-            <button
-              key={item}
-              onClick={() => onModeChange(item)}
-              className={`h-7 rounded px-2 text-xs font-medium capitalize ${
-                mode === item ? 'bg-[#007aff] text-white' : 'text-zinc-600 hover:bg-zinc-200'
-              }`}
-            >
-              {item === 'guide' ? t('reader.guide') : t('reader.translationTab')}
-            </button>
-          ))}
-        </div>
-        {mode === 'translation' && (
-          <>
-            <button
-              onClick={handleHighlightClick}
-              className={`flex h-8 w-8 items-center justify-center rounded-md border ${showHighlights ? 'border-yellow-400 bg-yellow-100 text-yellow-800' : 'border-zinc-300 text-zinc-400 hover:bg-zinc-100'}`}
-              title={t(showHighlights ? 'reader.hideHighlights' : 'reader.showHighlights')}
-              aria-pressed={showHighlights}
-            >
-              <Highlighter className="h-4 w-4" />
-            </button>
-            <button
-              onClick={handleKnowledgeCardClick}
-              className={`flex h-8 w-8 items-center justify-center rounded-md border ${showKnowledgeCards ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-zinc-300 text-zinc-400 hover:bg-zinc-100'}`}
-              title={t(showKnowledgeCards ? 'reader.hideCards' : 'reader.showCards')}
-              aria-pressed={showKnowledgeCards}
-            >
-              <FileText className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setIsFormatOpen((current) => !current)}
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-100"
-              title={t('reader.tuneTranslation')}
-            >
-              <BookOpen className="h-4 w-4" />
-            </button>
-          </>
-        )}
-        <span className="text-xs text-zinc-400">{pageLabel}</span>
-      </div>
+    <div className="mb-3 flex gap-1 overflow-x-auto rounded-md border border-zinc-300 bg-[#f2f2f7] p-1">
+        {workspaceModes.map((item) => (
+          <button
+            key={item}
+            onClick={() => onModeChange(item)}
+            className={`h-8 shrink-0 rounded px-2.5 text-xs font-medium ${
+              mode === item ? 'bg-[#007aff] text-white shadow-sm' : 'text-zinc-600 hover:bg-white'
+            }`}
+          >
+            {modeLabels[item]}
+          </button>
+        ))}
     </div>
+
+    {mode === 'translation' && (
+      <div className="mb-3 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onTranslateCurrent}
+          disabled={isTranslating}
+          className="flex h-8 items-center gap-1.5 rounded-md bg-[#007aff] px-2 text-xs font-medium text-[#ffffff] hover:bg-[#0066cc] disabled:cursor-wait disabled:opacity-50"
+        >
+          {isTranslating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          {isTranslating ? t('reader.translating', { seconds: llmElapsedSeconds }) : t('reader.translate')}
+        </button>
+      </div>
+    )}
 
     {mode === 'translation' ? (
       <div className="min-h-0 flex-1 overflow-auto pr-2">
@@ -3613,25 +3676,345 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
             onThemeChange={onThemeChange}
             onApplyTheme={onApplyTheme}
             onSaveTheme={onSaveTheme}
+            onClose={onCloseFormat}
           />
         )}
       </div>
     ) : (
       <div className="min-h-0 flex-1 overflow-auto pr-2">
-        <GuideView
-          activeTranslation={activeTranslation}
-          highlights={highlights}
-          knowledgeCards={knowledgeCards}
-          pdfAnnotations={pdfAnnotations}
-          noteResponse={note?.llmResponse || ''}
-          noteAnchors={noteAnchors}
-          onHoverNoteSource={onHoverNoteSource}
-          onDeleteHighlight={onDeleteHighlight}
-          onDeleteKnowledgeCard={onDeleteKnowledgeCard}
-        />
+        {mode === 'annotations' && (
+          <AnnotationWorkspace
+            activeTranslation={activeTranslation}
+            highlights={highlights}
+            knowledgeCards={knowledgeCards}
+            pdfAnnotations={pdfAnnotations}
+            note={note}
+            noteAnchors={noteAnchors}
+            noteResponse={note?.llmResponse || ''}
+            onNoteChange={onNoteChange}
+            onRespondToNote={onRespondToNote}
+            isRespondingToNote={isRespondingToNote}
+            onHoverNoteSource={onHoverNoteSource}
+            onDeleteHighlight={onDeleteHighlight}
+            onDeleteKnowledgeCard={onDeleteKnowledgeCard}
+          />
+        )}
+        {mode === 'argument' && (
+          <ArgumentWorkspace activeTranslation={activeTranslation} highlights={highlights} knowledgeCards={knowledgeCards} />
+        )}
+        {mode === 'links' && (
+          <LinksWorkspace highlights={highlights} knowledgeCards={knowledgeCards} pdfAnnotations={pdfAnnotations} />
+        )}
+        {mode === 'concepts' && (
+          <ConceptWorkspace activeTranslation={activeTranslation} knowledgeCards={knowledgeCards} pdfAnnotations={pdfAnnotations} />
+        )}
+        {mode === 'history' && (
+          <HistoryWorkspace highlights={highlights} knowledgeCards={knowledgeCards} pdfAnnotations={pdfAnnotations} note={note} />
+        )}
+        {mode === 'assistant' && (
+          <InlineReadingAssistant
+            messages={readingAgentMessages}
+            isResponding={isReadingAgentResponding}
+            onSend={onSendReadingAgentMessage}
+          />
+        )}
       </div>
     )}
     </article>
+  );
+};
+
+interface AnnotationWorkspaceProps {
+  activeTranslation: TranslatedSegment | null;
+  highlights: Highlight[];
+  knowledgeCards: KnowledgeCard[];
+  pdfAnnotations: EmbeddedPdfAnnotation[];
+  note: ReaderNote | null;
+  noteResponse: string;
+  noteAnchors: HoverAnchor[];
+  onNoteChange: (body: string) => void;
+  onRespondToNote: () => void;
+  isRespondingToNote: boolean;
+  onHoverNoteSource: (text: string) => void;
+  onDeleteHighlight: (highlightId: string) => void;
+  onDeleteKnowledgeCard: (cardId: string) => void;
+}
+
+const WorkspaceEmptyState: React.FC<{ title: string; body: string }> = ({ title, body }) => (
+  <div className="rounded-md border border-dashed border-zinc-300 bg-[#f9fafb] p-4 text-sm leading-6 text-zinc-500">
+    <p className="font-medium text-zinc-800">{title}</p>
+    <p className="mt-1">{body}</p>
+  </div>
+);
+
+const AnnotationWorkspace: React.FC<AnnotationWorkspaceProps> = ({
+  activeTranslation,
+  highlights,
+  knowledgeCards,
+  pdfAnnotations,
+  note,
+  noteResponse,
+  noteAnchors,
+  onNoteChange,
+  onRespondToNote,
+  isRespondingToNote,
+  onHoverNoteSource,
+  onDeleteHighlight,
+  onDeleteKnowledgeCard,
+}) => {
+  const { t } = useTranslation();
+
+  return (
+    <div className="space-y-5">
+      <section>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Reader Note</p>
+        <textarea
+          value={note?.body || ''}
+          onChange={(event) => onNoteChange(event.target.value)}
+          placeholder="Write an interpretation, objection, question, or synthesis for this passage."
+          className="mt-3 min-h-28 w-full resize-none rounded-md border border-zinc-300 bg-white p-3 text-sm leading-6 outline-none focus:border-[#007aff] focus:ring-2 focus:ring-[#007aff]/20"
+        />
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <p className="text-xs text-zinc-400">Saved locally with this passage.</p>
+          <button
+            type="button"
+            onClick={onRespondToNote}
+            disabled={isRespondingToNote || !note?.body.trim()}
+            className="flex h-8 items-center gap-2 rounded-md bg-[#007aff] px-3 text-xs font-medium text-white hover:bg-[#0066cc] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {isRespondingToNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            Ask AI
+          </button>
+        </div>
+      </section>
+
+      <GuideView
+        activeTranslation={activeTranslation}
+        highlights={highlights}
+        knowledgeCards={knowledgeCards}
+        pdfAnnotations={pdfAnnotations}
+        noteResponse={noteResponse}
+        noteAnchors={noteAnchors}
+        onHoverNoteSource={onHoverNoteSource}
+        onDeleteHighlight={onDeleteHighlight}
+        onDeleteKnowledgeCard={onDeleteKnowledgeCard}
+      />
+    </div>
+  );
+};
+
+const ArgumentWorkspace: React.FC<{
+  activeTranslation: TranslatedSegment | null;
+  highlights: Highlight[];
+  knowledgeCards: KnowledgeCard[];
+}> = ({ activeTranslation, highlights, knowledgeCards }) => {
+  const evidence = highlights.slice(0, 4);
+  const assumptions = knowledgeCards.slice(0, 3);
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-md border border-zinc-200 bg-white p-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Main Thesis</p>
+        <p className="mt-3 text-sm leading-6 text-zinc-700">
+          {activeTranslation?.pageGuide || activeTranslation?.commentary || 'Translate this passage or add notes to begin reconstructing the argument.'}
+        </p>
+      </section>
+      <section className="rounded-md border border-zinc-200 bg-white p-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Evidence / Claims</p>
+        {evidence.length ? (
+          <div className="mt-3 space-y-2">
+            {evidence.map((highlight) => (
+              <div key={highlight.id} className="rounded-sm bg-yellow-100 px-2 py-1 text-xs leading-5 text-zinc-800">{highlight.text}</div>
+            ))}
+          </div>
+        ) : (
+          <WorkspaceEmptyState title="No evidence nodes yet" body="Highlight claims or evidence in the passage to seed the argument map." />
+        )}
+      </section>
+      <section className="rounded-md border border-zinc-200 bg-white p-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Assumptions / Terms</p>
+        {assumptions.length ? (
+          <div className="mt-3 space-y-2">
+            {assumptions.map((card) => (
+              <div key={card.id} className="rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-zinc-700">
+                <p className="font-semibold text-zinc-900">{card.excerpt}</p>
+                {card.explanation && <p className="mt-1 text-zinc-600">{card.explanation}</p>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <WorkspaceEmptyState title="No assumption nodes yet" body="Create knowledge cards for terms or unstated premises." />
+        )}
+      </section>
+      {activeTranslation?.reflectionPrompt && (
+        <section className="rounded-md border border-purple-100 bg-purple-50 p-4 text-sm leading-6 text-purple-950">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-purple-800">Open Question</p>
+          <p className="mt-2">{activeTranslation.reflectionPrompt}</p>
+        </section>
+      )}
+    </div>
+  );
+};
+
+const LinksWorkspace: React.FC<{
+  highlights: Highlight[];
+  knowledgeCards: KnowledgeCard[];
+  pdfAnnotations: EmbeddedPdfAnnotation[];
+}> = ({ highlights, knowledgeCards, pdfAnnotations }) => {
+  const objects = [
+    ...highlights.map((item) => ({ id: item.id, type: 'Highlight', text: item.text })),
+    ...knowledgeCards.map((item) => ({ id: item.id, type: 'Knowledge card', text: item.excerpt })),
+    ...pdfAnnotations.map((item) => ({ id: item.id, type: PDF_ANNOTATION_LABELS[item.kind], text: item.text || item.note || `Page ${item.pageNumber}` })),
+  ].slice(0, 8);
+
+  return (
+    <div className="space-y-4">
+      <WorkspaceEmptyState
+        title="Bidirectional links are not stored yet"
+        body="This workspace is reserved for cross-book passage links. Current passage objects are listed below as link candidates."
+      />
+      <div className="space-y-2">
+        {objects.map((object) => (
+          <div key={`${object.type}-${object.id}`} className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs leading-5">
+            <p className="font-semibold text-zinc-800">{object.type}</p>
+            <p className="mt-1 text-zinc-600">{object.text}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const ConceptWorkspace: React.FC<{
+  activeTranslation: TranslatedSegment | null;
+  knowledgeCards: KnowledgeCard[];
+  pdfAnnotations: EmbeddedPdfAnnotation[];
+}> = ({ activeTranslation, knowledgeCards, pdfAnnotations }) => {
+  const concepts = [
+    ...(activeTranslation?.keyTerms || []).map((term) => ({ id: `term-${term.term}`, label: term.term, body: term.explanation })),
+    ...knowledgeCards.map((card) => ({ id: card.id, label: card.excerpt, body: card.explanation || '' })),
+    ...pdfAnnotations.filter((annotation) => annotation.text).map((annotation) => ({
+      id: annotation.id,
+      label: annotation.text,
+      body: annotation.note || PDF_ANNOTATION_LABELS[annotation.kind],
+    })),
+  ];
+
+  return concepts.length ? (
+    <div className="space-y-2">
+      {concepts.map((concept) => (
+        <div key={concept.id} className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm leading-6">
+          <p className="font-semibold text-blue-950">{concept.label}</p>
+          {concept.body && <p className="mt-1 text-xs leading-5 text-zinc-600">{concept.body}</p>}
+        </div>
+      ))}
+    </div>
+  ) : (
+    <WorkspaceEmptyState title="No concepts yet" body="Translate the passage or create knowledge cards to seed the personal concept index." />
+  );
+};
+
+const HistoryWorkspace: React.FC<{
+  highlights: Highlight[];
+  knowledgeCards: KnowledgeCard[];
+  pdfAnnotations: EmbeddedPdfAnnotation[];
+  note: ReaderNote | null;
+}> = ({ highlights, knowledgeCards, pdfAnnotations, note }) => {
+  const events = [
+    ...highlights.map((highlight) => ({ id: highlight.id, label: 'Highlight saved', time: highlight.createdAt, body: highlight.text })),
+    ...knowledgeCards.map((card) => ({ id: card.id, label: 'Knowledge card saved', time: card.createdAt, body: card.excerpt })),
+    ...pdfAnnotations.map((annotation) => ({ id: annotation.id, label: PDF_ANNOTATION_LABELS[annotation.kind], time: annotation.modifiedAt || '', body: annotation.text || annotation.note || '' })),
+    ...(note ? [{ id: note.id, label: 'Reader note updated', time: note.updatedAt, body: note.body }] : []),
+  ].sort((a, b) => (b.time || '').localeCompare(a.time || ''));
+
+  return events.length ? (
+    <div className="space-y-3">
+      {events.map((event) => (
+        <div key={`${event.label}-${event.id}`} className="border-l-2 border-zinc-300 pl-3 text-sm leading-6">
+          <p className="font-semibold text-zinc-900">{event.label}</p>
+          {event.time && <p className="text-[11px] text-zinc-400">{event.time}</p>}
+          <p className="mt-1 text-xs leading-5 text-zinc-600">{event.body}</p>
+        </div>
+      ))}
+    </div>
+  ) : (
+    <WorkspaceEmptyState title="No passage history yet" body="Highlights, notes, imported PDF annotations, and knowledge cards will appear here." />
+  );
+};
+
+const InlineReadingAssistant: React.FC<{
+  messages: ReadingAgentMessage[];
+  isResponding: boolean;
+  onSend: (content: string) => void;
+}> = ({ messages, isResponding, onSend }) => {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState('');
+  const starters = [t('genie.starterNotice'), t('genie.starterPhrase'), t('genie.starterConnection')];
+  const send = (content = draft) => {
+    if (!content.trim() || isResponding) return;
+    onSend(content.trim());
+    setDraft('');
+  };
+
+  return (
+    <div className="flex min-h-full flex-col">
+      <div className="min-h-0 flex-1 space-y-3 overflow-auto">
+        {!messages.length ? (
+          <div className="space-y-2">
+            {starters.map((starter) => (
+              <button
+                key={starter}
+                type="button"
+                onClick={() => send(starter)}
+                className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-left text-sm leading-6 text-zinc-700 hover:bg-zinc-50"
+              >
+                {starter}
+              </button>
+            ))}
+          </div>
+        ) : (
+          messages.map((message, index) => (
+            <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[88%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm leading-6 ${
+                message.role === 'user' ? 'rounded-br-sm bg-[#007aff] text-white' : 'rounded-bl-sm border border-zinc-200 bg-[#f5f5f7] text-zinc-800'
+              }`}>
+                {message.content}
+              </div>
+            </div>
+          ))
+        )}
+        {isResponding && (
+          <div className="flex items-center gap-2 text-xs text-zinc-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t('genie.thinking')}
+          </div>
+        )}
+      </div>
+      <div className="mt-4 flex items-end gap-2 rounded-xl border border-zinc-300 bg-white p-2 focus-within:border-[#007aff] focus-within:ring-2 focus-within:ring-[#007aff]/20">
+        <textarea
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              send();
+            }
+          }}
+          rows={2}
+          placeholder={t('genie.placeholder')}
+          className="max-h-32 min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-5 outline-none placeholder:text-zinc-400"
+        />
+        <button
+          type="button"
+          onClick={() => send()}
+          disabled={!draft.trim() || isResponding}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#007aff] text-white hover:bg-[#0066cc] disabled:cursor-not-allowed disabled:opacity-35"
+          title={t('genie.send')}
+        >
+          {isResponding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+        </button>
+      </div>
+    </div>
   );
 };
 
@@ -3824,6 +4207,7 @@ const GuideView: React.FC<GuideViewProps> = ({
   onDeleteKnowledgeCard,
 }) => {
   const { t } = useTranslation();
+  const pdfAnnotationGroups = useMemo(() => groupPdfAnnotationsByColor(pdfAnnotations), [pdfAnnotations]);
 
   return (
   <div>
@@ -3892,17 +4276,40 @@ const GuideView: React.FC<GuideViewProps> = ({
 
       {pdfAnnotations.length > 0 && (
         <section className="border-t border-zinc-200 pt-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Imported PDF Notes</p>
-          <div className="mt-3 space-y-2">
-            {pdfAnnotations.map((annotation) => (
-              <div key={annotation.id} className="rounded-sm border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-700">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-semibold text-zinc-800">{PDF_ANNOTATION_LABELS[annotation.kind]}</p>
-                  <span className="shrink-0 text-[10px] text-zinc-400">p. {annotation.pageNumber}</span>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Imported PDF Highlights</p>
+            <span className="text-[10px] text-zinc-400">{pdfAnnotations.length} total</span>
+          </div>
+          <div className="mt-3 space-y-4">
+            {pdfAnnotationGroups.map((group) => (
+              <div key={group.color} className="rounded-md border border-zinc-200 bg-white p-3">
+                <div className="flex items-center justify-between gap-3 border-b border-zinc-100 pb-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="h-3.5 w-3.5 shrink-0 rounded-full border border-zinc-300"
+                      style={{ backgroundColor: group.color === 'uncolored' ? '#ffffff' : group.color }}
+                    />
+                    <p className="truncate text-xs font-semibold text-zinc-900">{getPdfAnnotationColorLabel(group.color)}</p>
+                  </div>
+                  <span className="shrink-0 text-[10px] text-zinc-400">{group.items.length}</span>
                 </div>
-                {annotation.text && <p className="mt-2 rounded-sm bg-yellow-100 px-2 py-1 font-serif text-zinc-900">{annotation.text}</p>}
-                {annotation.note && <p className="mt-2 whitespace-pre-wrap text-zinc-600">{annotation.note}</p>}
-                {annotation.author && <p className="mt-2 text-[10px] text-zinc-400">{annotation.author}</p>}
+                <div className="mt-2 space-y-2">
+                  {group.items.map((annotation) => (
+                    <div key={annotation.id} className="rounded-sm bg-[#f9fafb] px-3 py-2 text-xs leading-5 text-zinc-700">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-semibold text-zinc-800">{PDF_ANNOTATION_LABELS[annotation.kind]}</p>
+                        <span className="shrink-0 text-[10px] text-zinc-400">p. {annotation.pageNumber}</span>
+                      </div>
+                      {annotation.text && (
+                        <p className="mt-2 rounded-sm px-2 py-1 font-serif text-zinc-950" style={{ backgroundColor: group.color === 'uncolored' ? '#f4f4f5' : `${group.color}55` }}>
+                          {annotation.text}
+                        </p>
+                      )}
+                      {annotation.note && <p className="mt-2 whitespace-pre-wrap text-zinc-600">{annotation.note}</p>}
+                      {annotation.author && <p className="mt-2 text-[10px] text-zinc-400">{annotation.author}</p>}
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
@@ -4441,9 +4848,10 @@ interface StatusMessageProps {
   statusMessage: string;
   errorMessage: string;
   compact?: boolean;
+  floating?: boolean;
 }
 
-const StatusMessage: React.FC<StatusMessageProps> = ({ statusMessage, errorMessage, compact }) => {
+const StatusMessage: React.FC<StatusMessageProps> = ({ statusMessage, errorMessage, compact, floating }) => {
   if (!statusMessage && !errorMessage) {
     return null;
   }
@@ -4454,9 +4862,17 @@ const StatusMessage: React.FC<StatusMessageProps> = ({ statusMessage, errorMessa
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const positionClass = requiresSignIn
+    ? 'fixed left-1/2 top-4 z-40 w-[min(520px,calc(100vw-32px))] -translate-x-1/2 shadow-xl'
+    : floating
+      ? 'pointer-events-auto shadow-lg backdrop-blur'
+      : compact
+        ? 'mt-0'
+        : 'mt-5';
+
   return (
     <div
-      className={`${requiresSignIn ? 'fixed left-1/2 top-4 z-40 w-[min(520px,calc(100vw-32px))] -translate-x-1/2 shadow-xl' : compact ? 'mt-0' : 'mt-5'} flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${
+      className={`${positionClass} flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${
         errorMessage ? 'border-red-300 bg-red-50 text-red-800' : 'border-green-300 bg-green-50 text-green-800'
       }`}
     >
@@ -4786,39 +5202,6 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
       ),
     )}
 
-    {layout.notes && layout.notes.length > 0 && (
-      <ol
-        className="mt-7 border-t border-zinc-300 pt-3 text-[0.78em] leading-6 text-zinc-600"
-        style={theme ? { color: getSubduedTextColor(theme), borderColor: getPageFrameSeparatorColor(theme) } : undefined}
-      >
-        {layout.notes.map((note, index) => (
-          <li key={`${note}-${index}`} className="grid grid-cols-[1.5rem_1fr] gap-2">
-            <span>{index + 1}</span>
-            <span>
-              <HighlightedLine line={String(note)} phrase={hoverHighlightText} annotations={annotations} marks={marks} />
-            </span>
-          </li>
-        ))}
-      </ol>
-    )}
-
-    {layout.footer?.trim() && (
-      <div
-        className="-mx-2 mt-7 border-t border-zinc-300 bg-zinc-100/70 px-2 pb-1 pt-3 text-center text-[0.74em] leading-5 text-zinc-400"
-        style={
-          theme
-            ? {
-                color: getPageFrameTextColor(),
-                textAlign: 'center',
-                borderColor: getPageFrameSeparatorColor(theme),
-                backgroundColor: getPageFrameBackground(theme),
-              }
-            : undefined
-        }
-      >
-        <HighlightedLine line={layout.footer} phrase={hoverHighlightText} annotations={annotations} marks={marks} />
-      </div>
-    )}
   </>
 );
 
@@ -5026,6 +5409,7 @@ interface ReadingThemePopoverProps {
   onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
   onApplyTheme: (themeId: string) => void;
   onSaveTheme: () => void;
+  onClose: () => void;
 }
 
 const ReadingThemePopover: React.FC<ReadingThemePopoverProps> = ({
@@ -5036,23 +5420,36 @@ const ReadingThemePopover: React.FC<ReadingThemePopoverProps> = ({
   onThemeChange,
   onApplyTheme,
   onSaveTheme,
+  onClose,
 }) => {
   const { t } = useTranslation();
 
   return (
   <div className="absolute right-6 top-20 z-30 w-80 rounded-md border border-zinc-300 bg-[#ffffff] p-4 text-zinc-900 shadow-2xl">
-    <div className="mb-4 flex items-center justify-between gap-3">
+    <div className="mb-4 flex items-start justify-between gap-3">
       <div>
         <p className="text-sm font-semibold">{title}</p>
         <p className="text-xs text-zinc-500">{description}</p>
       </div>
-      <button
-        onClick={onSaveTheme}
-        className="flex h-8 items-center gap-1 rounded-md border border-zinc-300 px-2 text-xs font-medium hover:bg-zinc-100"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        {t('format.save')}
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onSaveTheme}
+          className="flex h-8 items-center gap-1 rounded-md border border-zinc-300 px-2 text-xs font-medium hover:bg-zinc-100"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {t('format.save')}
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-300 text-zinc-500 hover:bg-zinc-100"
+          aria-label="Close style panel"
+          title="Close style panel"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
 
     <div className="grid grid-cols-2 gap-2">
