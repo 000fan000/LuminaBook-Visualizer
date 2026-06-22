@@ -2635,33 +2635,47 @@ const ReaderView: React.FC<ReaderViewProps> = ({
           />
         )}
         <div className="grid h-full min-h-0 flex-1 grid-rows-2 gap-4 lg:grid-cols-2 lg:grid-rows-none">
-          <BookPage
-            body={activeSegment.sourceText}
-            pdfUrl={book.fileType === 'pdf' ? book.sourceUrl : undefined}
-            pdfData={book.fileType === 'pdf' ? book.sourceData : undefined}
-            pdfPage={activeSegment.firstPage}
-            readingTheme={book.fileType === 'pdf' ? undefined : sourceReadingTheme}
-            readingThemes={readingThemes}
-            highlights={highlights.filter((highlight) => highlight.pageSide === 'original')}
-            knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'original')}
-            annotations={annotationCards}
-            pdfAnnotations={activeSegment.pdfAnnotations || []}
-            hoverHighlightText={hoveredNoteSourceText}
-            onAddHighlight={(text) => onAddHighlight('original', text)}
-            onDefineSelection={(text) => onDefineSelection('original', text)}
-            isDefiningSelection={isDefiningSelection}
-            onCreateKnowledgeCard={() => onCreateKnowledgeCard('original')}
-            showHighlights={sourceShowHighlights}
-            onShowHighlightsChange={setSourceShowHighlights}
-            showKnowledgeCards={sourceShowKnowledgeCards}
-            onShowKnowledgeCardsChange={setSourceShowKnowledgeCards}
-            isFormatOpen={sourceIsFormatOpen}
-            onToggleFormat={() => setSourceIsFormatOpen((current) => !current)}
-            onCloseFormat={() => setSourceIsFormatOpen(false)}
-            onThemeChange={onSourceThemeChange}
-            onApplyTheme={onApplySourceTheme}
-            onSaveTheme={onSaveSourceTheme}
-          />
+          <div className="group/left-page relative h-full min-h-0">
+            <BookPage
+              body={activeSegment.sourceText}
+              pdfUrl={book.fileType === 'pdf' ? book.sourceUrl : undefined}
+              pdfData={book.fileType === 'pdf' ? book.sourceData : undefined}
+              pdfPage={activeSegment.firstPage}
+              readingTheme={book.fileType === 'pdf' ? undefined : sourceReadingTheme}
+              readingThemes={readingThemes}
+              highlights={highlights.filter((highlight) => highlight.pageSide === 'original')}
+              knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'original')}
+              annotations={annotationCards}
+              pdfAnnotations={activeSegment.pdfAnnotations || []}
+              hoverHighlightText={hoveredNoteSourceText}
+              onAddHighlight={(text) => onAddHighlight('original', text)}
+              onDefineSelection={(text) => onDefineSelection('original', text)}
+              isDefiningSelection={isDefiningSelection}
+              onCreateKnowledgeCard={() => onCreateKnowledgeCard('original')}
+              showHighlights={sourceShowHighlights}
+              onShowHighlightsChange={setSourceShowHighlights}
+              showKnowledgeCards={sourceShowKnowledgeCards}
+              onShowKnowledgeCardsChange={setSourceShowKnowledgeCards}
+              isFormatOpen={sourceIsFormatOpen}
+              onToggleFormat={() => setSourceIsFormatOpen((current) => !current)}
+              onCloseFormat={() => setSourceIsFormatOpen(false)}
+              onThemeChange={onSourceThemeChange}
+              onApplyTheme={onApplySourceTheme}
+              onSaveTheme={onSaveSourceTheme}
+            />
+            <button
+              type="button"
+              onClick={onNext}
+              disabled={!canGoNext}
+              className="absolute right-2 top-1/2 z-20 flex -translate-y-1/2 items-center justify-center opacity-0 transition hover:opacity-100 focus:opacity-100 disabled:pointer-events-none group-hover/left-page:opacity-100"
+              title={t('reader.next')}
+              aria-label={t('reader.next')}
+            >
+              <span className="flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white/90 text-zinc-700 shadow-lg backdrop-blur transition hover:translate-x-0.5">
+                <ChevronRight className="h-5 w-5" />
+              </span>
+            </button>
+          </div>
           <RightReaderPane
             motherLanguage={motherLanguage}
             activeTranslation={activeTranslation}
@@ -2726,18 +2740,6 @@ const ReaderView: React.FC<ReaderViewProps> = ({
     >
       <span className="flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white/90 text-zinc-700 shadow-lg backdrop-blur transition group-hover:-translate-x-0.5">
         <ChevronLeft className="h-5 w-5" />
-      </span>
-    </button>
-    <button
-      type="button"
-      onClick={onNext}
-      disabled={!canGoNext}
-      className="group absolute right-0 top-14 z-20 flex h-[calc(100%-3.5rem)] w-16 items-center justify-end pr-3 opacity-0 transition hover:opacity-100 focus:opacity-100 disabled:pointer-events-none"
-      title={t('reader.next')}
-      aria-label={t('reader.next')}
-    >
-      <span className="flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white/90 text-zinc-700 shadow-lg backdrop-blur transition group-hover:translate-x-0.5">
-        <ChevronRight className="h-5 w-5" />
       </span>
     </button>
     {isConfigOpen && (
@@ -3650,7 +3652,7 @@ const BookPage: React.FC<BookPageProps> = ({
   const visiblePdfAnnotationCards = showKnowledgeCards ? pdfAnnotationCards : [];
   return (
   <article ref={pageRef}
-    className="relative flex min-h-0 flex-col overflow-hidden rounded-sm border border-zinc-300 px-7 py-6 shadow-[0_18px_50px_rgba(0,0,0,0.08)] md:px-10"
+    className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-sm border border-zinc-300 px-7 py-6 shadow-[0_18px_50px_rgba(0,0,0,0.08)] md:px-10"
     style={readingTheme ? { backgroundColor: readingTheme.background, color: readingTheme.textColor } : { backgroundColor: '#ffffff' }}
   >
     <SelectionToolbar
