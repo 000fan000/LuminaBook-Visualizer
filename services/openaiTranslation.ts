@@ -1,5 +1,8 @@
 import {
   BookMetadata,
+  Highlight,
+  HighlightOrganization,
+  HighlightOrganizationInput,
   LlmAnnotation,
   LlmSettings,
   SourceSegment,
@@ -91,6 +94,7 @@ const getPlatformOperation = (requestName: string) => {
   if (requestName.startsWith('note response')) return 'note';
   if (requestName.startsWith('reading agent')) return 'chat';
   if (requestName.startsWith('define selection')) return 'define';
+  if (requestName.startsWith('organize highlights')) return 'organize';
   return '';
 };
 
@@ -161,6 +165,35 @@ const parseJsonContent = (content: string): TranslationResult => {
     keyTerms: Array.isArray(parsed.keyTerms) ? parsed.keyTerms : [],
     reflectionPrompt: parsed.reflectionPrompt || '',
     annotations,
+  };
+};
+
+const parseHighlightOrganizationContent = (content: string, validHighlightIds: Set<string>): HighlightOrganization => {
+  let parsed: Partial<HighlightOrganization>;
+  try {
+    parsed = parseJsonObjectContent<Partial<HighlightOrganization>>(content);
+  } catch (error) {
+    console.error('[LuminaBook] Highlight organization JSON parse failed.', error);
+    console.error('[LuminaBook] Raw LLM content:', content);
+    throw error;
+  }
+  const topics = Array.isArray(parsed.topics)
+    ? parsed.topics
+        .map((topic) => {
+          const title = String(topic?.title || '').trim();
+          const summary = String(topic?.summary || '').trim();
+          const highlightIds = Array.isArray(topic?.highlightIds)
+            ? topic.highlightIds.map(String).filter((id) => validHighlightIds.has(id))
+            : [];
+
+          return title && highlightIds.length ? { title, summary, highlightIds } : null;
+        })
+        .filter((topic): topic is HighlightOrganization['topics'][number] => Boolean(topic))
+    : [];
+
+  return {
+    overview: String(parsed.overview || '').trim(),
+    topics,
   };
 };
 
@@ -878,6 +911,73 @@ ${note}`,
   }
 
   return content;
+};
+
+export const organizeHighlights = async (
+  highlights: HighlightOrganizationInput[],
+  book: UploadedBook,
+  motherLanguage: string,
+  settings: LlmSettings,
+): Promise<HighlightOrganization> => {
+  if (!hasRequiredSettings(settings)) {
+    throw new Error('Endpoint, API key, and model are required before organizing highlights.');
+  }
+
+  const highlightPayload = highlights.map((highlight) => {
+    const segment = book.segments[highlight.segmentIndex];
+
+    return {
+      id: highlight.id,
+      page: highlight.pageNumber || segment?.firstPage || highlight.segmentIndex + 1,
+      segment: highlight.segmentIndex + 1,
+      side: highlight.pageSide,
+      text: highlight.text,
+    };
+  });
+  const response = await postChatCompletion(
+    settings,
+    [
+      {
+        role: 'system',
+        content: `You organize a reader's saved highlights from one book into a useful conceptual map. Preserve exact highlight IDs. Reply in ${motherLanguage}.`,
+      },
+      {
+        role: 'user',
+        content: `Book: ${book.title}${book.author ? ` by ${book.author}` : ''}
+
+Group these highlights by topic and content. Return JSON with exactly:
+- overview: concise synthesis of the highlight set
+- topics: array of objects with title, summary, highlightIds
+
+Rules:
+- Use only the supplied highlights.
+- Every highlightIds value must be copied exactly from the input id fields.
+- Prefer 3 to 7 topics unless the highlight set is very small.
+- A highlight may appear in more than one topic only if it genuinely bridges topics.
+- Keep topic titles specific to the book's arguments, not generic labels.
+- Do not include markdown.
+
+Highlights JSON:
+${JSON.stringify(highlightPayload, null, 2)}`,
+      },
+    ],
+    10000,
+    `organize highlights ${book.title}`,
+  );
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Highlight organization failed (${response.status}): ${detail.slice(0, 500)}`);
+  }
+
+  const data = (await response.json()) as ChatCompletionResponse;
+  const content = data.choices?.[0]?.message?.content;
+
+  if (!content) {
+    throw new Error('Highlight organization did not include message content.');
+  }
+
+  return parseHighlightOrganizationContent(content, new Set(highlights.map((highlight) => highlight.id)));
 };
 
 export const converseWithReadingAgent = async (

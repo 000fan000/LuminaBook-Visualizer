@@ -49,6 +49,7 @@ import {
   DEFAULT_SYSTEM_PROMPT,
   defineSelectedText,
   detectBookMetadata,
+  organizeHighlights,
   PLATFORM_PROVIDER_ID,
   PLATFORM_PROVIDER_LABEL,
   PLATFORM_PROVIDER_MODEL,
@@ -65,6 +66,8 @@ import {
   BookMetadata,
   EmbeddedPdfAnnotation,
   Highlight,
+  HighlightOrganization,
+  HighlightOrganizationInput,
   KnowledgeCard,
   LlmAnnotation,
   LlmEvaluationRecord,
@@ -179,6 +182,11 @@ type RightPaneMode = 'translation' | 'annotations' | 'argument' | 'links' | 'con
 interface ReadingAgentMessage {
   role: 'user' | 'assistant';
   content: string;
+}
+
+interface BookHighlightItem extends HighlightOrganizationInput {
+  source: 'saved' | 'pdf';
+  savedHighlightId?: string;
 }
 
 interface ReadingTheme {
@@ -458,6 +466,8 @@ const App: React.FC = () => {
   const [isRespondingToNote, setIsRespondingToNote] = useState(false);
   const [isReadingAgentResponding, setIsReadingAgentResponding] = useState(false);
   const [isDefiningSelection, setIsDefiningSelection] = useState(false);
+  const [isOrganizingHighlights, setIsOrganizingHighlights] = useState(false);
+  const [organizedHighlightsByBook, setOrganizedHighlightsByBook] = useState<Record<string, HighlightOrganization>>({});
   const [readingAgentMessages, setReadingAgentMessages] = useState<ReadingAgentMessage[]>([]);
   const [llmRequestStartedAt, setLlmRequestStartedAt] = useState<number | null>(null);
   const [llmElapsedSeconds, setLlmElapsedSeconds] = useState(0);
@@ -505,6 +515,46 @@ const App: React.FC = () => {
         : [],
     [book, activeSegment, highlights],
   );
+  const bookHighlights = useMemo<BookHighlightItem[]>(() => {
+    if (!book) {
+      return [];
+    }
+
+    const savedHighlights = highlights
+      .filter((highlight) => belongsToBook(highlight, book))
+      .map((highlight): BookHighlightItem => ({
+        id: highlight.id,
+        segmentIndex: highlight.segmentIndex,
+        pageSide: highlight.pageSide,
+        text: highlight.text,
+        source: 'saved',
+        savedHighlightId: highlight.id,
+        pageNumber: book.segments[highlight.segmentIndex]?.firstPage,
+      }));
+    const pdfHighlights = book.segments.flatMap((segment) =>
+      (segment.pdfAnnotations || [])
+        .filter((annotation) => annotation.text && (annotation.kind === 'highlight' || annotation.kind === 'underline'))
+        .map((annotation): BookHighlightItem => ({
+          id: `pdf-${annotation.id}`,
+          segmentIndex: segment.index,
+          pageSide: 'original',
+          text: annotation.text,
+          source: 'pdf',
+          pageNumber: annotation.pageNumber,
+        })),
+    );
+
+    const merged = [...savedHighlights, ...pdfHighlights].sort(
+      (a, b) => (a.pageNumber || a.segmentIndex + 1) - (b.pageNumber || b.segmentIndex + 1) || a.id.localeCompare(b.id),
+    );
+    const seenTexts = new Set<string>();
+    return merged.filter((item) => {
+      const key = item.text.trim();
+      if (seenTexts.has(key)) return false;
+      seenTexts.add(key);
+      return true;
+    });
+  }, [book, highlights]);
   const activeKnowledgeCards = useMemo(
     () =>
       book && activeSegment
@@ -1486,6 +1536,38 @@ const App: React.FC = () => {
     setStatusMessage('Knowledge card deleted.');
   };
 
+  const organizeBookHighlights = async () => {
+    if (!book || isOrganizingHighlights) {
+      return;
+    }
+
+    if (!bookHighlights.length) {
+      setStatusMessage('Add highlights before organizing them.');
+      return;
+    }
+
+    persistActiveLlmProfile();
+    setIsOrganizingHighlights(true);
+    setLlmRequestStartedAt(Date.now());
+    setErrorMessage('');
+
+    try {
+      const organization = await organizeHighlights(bookHighlights, book, motherLanguage, settings);
+      setOrganizedHighlightsByBook((current) => ({
+        ...current,
+        [book.id]: organization,
+      }));
+      setStatusMessage('Highlights organized by topic.');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Highlight organization failed.');
+      setStatusMessage('');
+    } finally {
+      setIsOrganizingHighlights(false);
+      setLlmRequestStartedAt(null);
+      refreshEvaluationRecords();
+    }
+  };
+
   const goToBookmark = (bookmark: Bookmark) => {
     const targetBook = books.find((item) => belongsToBook(bookmark, item));
 
@@ -1642,6 +1724,9 @@ const App: React.FC = () => {
         onSelectLlmProfile={selectLlmProfile}
         isBookmarked={isBookmarked}
         highlights={activeHighlights}
+        bookHighlights={bookHighlights}
+        organizedHighlights={organizedHighlightsByBook[book.id] || null}
+        isOrganizingHighlights={isOrganizingHighlights}
         knowledgeCards={activeKnowledgeCards}
         onToggleBookmark={toggleBookmark}
         onAddHighlight={addHighlight}
@@ -1649,6 +1734,7 @@ const App: React.FC = () => {
         onDefineSelection={defineSelection}
         isDefiningSelection={isDefiningSelection}
         onDeleteHighlight={deleteHighlight}
+        onOrganizeHighlights={organizeBookHighlights}
         onDeleteKnowledgeCard={deleteKnowledgeCard}
         rightPaneMode={rightPaneMode}
         onRightPaneModeChange={setRightPaneMode}
@@ -2340,6 +2426,9 @@ interface ReaderViewProps {
   onSelectLlmProfile: (profileId: string) => void;
   isBookmarked: boolean;
   highlights: Highlight[];
+  bookHighlights: BookHighlightItem[];
+  organizedHighlights: HighlightOrganization | null;
+  isOrganizingHighlights: boolean;
   knowledgeCards: KnowledgeCard[];
   onToggleBookmark: () => void;
   onAddHighlight: (pageSide: Highlight['pageSide'], selectedText?: string) => void;
@@ -2347,6 +2436,7 @@ interface ReaderViewProps {
   onDefineSelection: (pageSide: Highlight['pageSide'], selectedText: string) => void;
   isDefiningSelection: boolean;
   onDeleteHighlight: (highlightId: string) => void;
+  onOrganizeHighlights: () => void;
   onDeleteKnowledgeCard: (cardId: string) => void;
   rightPaneMode: RightPaneMode;
   onRightPaneModeChange: (mode: RightPaneMode) => void;
@@ -2422,6 +2512,9 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   onSelectLlmProfile,
   isBookmarked,
   highlights,
+  bookHighlights,
+  organizedHighlights,
+  isOrganizingHighlights,
   knowledgeCards,
   onToggleBookmark,
   onAddHighlight,
@@ -2429,6 +2522,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   onDefineSelection,
   isDefiningSelection,
   onDeleteHighlight,
+  onOrganizeHighlights,
   onDeleteKnowledgeCard,
   rightPaneMode,
   onRightPaneModeChange,
@@ -2693,9 +2787,13 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             onTranslateCurrent={onTranslateCurrent}
             onTranslateNext={onTranslateNext}
             highlights={highlights}
+            bookHighlights={bookHighlights}
+            organizedHighlights={organizedHighlights}
+            isOrganizingHighlights={isOrganizingHighlights}
             knowledgeCards={knowledgeCards}
             pdfAnnotations={activeSegment.pdfAnnotations || []}
             onModeChange={onRightPaneModeChange}
+            onGoToSegment={onGoToSegment}
             onHoverNoteSource={onHoverNoteSource}
             onThemeChange={onTranslationThemeChange}
             onApplyTheme={onApplyTranslationTheme}
@@ -2705,6 +2803,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             isDefiningSelection={isDefiningSelection}
             onCreateKnowledgeCard={() => onCreateKnowledgeCard('translation')}
             onDeleteHighlight={onDeleteHighlight}
+            onOrganizeHighlights={onOrganizeHighlights}
             onDeleteKnowledgeCard={onDeleteKnowledgeCard}
             onNoteChange={onNoteChange}
             onRespondToNote={onRespondToNote}
@@ -3733,9 +3832,13 @@ interface RightReaderPaneProps {
   onTranslateCurrent: () => void;
   onTranslateNext: () => void;
   highlights: Highlight[];
+  bookHighlights: BookHighlightItem[];
+  organizedHighlights: HighlightOrganization | null;
+  isOrganizingHighlights: boolean;
   knowledgeCards: KnowledgeCard[];
   pdfAnnotations: EmbeddedPdfAnnotation[];
   onModeChange: (mode: RightPaneMode) => void;
+  onGoToSegment: (segmentIndex: number) => void;
   onHoverNoteSource: (text: string) => void;
   onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
   onApplyTheme: (themeId: string) => void;
@@ -3745,6 +3848,7 @@ interface RightReaderPaneProps {
   onDefineSelection: (selectedText: string) => void;
   isDefiningSelection: boolean;
   onDeleteHighlight: (highlightId: string) => void;
+  onOrganizeHighlights: () => void;
   onDeleteKnowledgeCard: (cardId: string) => void;
   onNoteChange: (body: string) => void;
   onRespondToNote: () => void;
@@ -3771,9 +3875,13 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   onTranslateCurrent,
   onTranslateNext,
   highlights,
+  bookHighlights,
+  organizedHighlights,
+  isOrganizingHighlights,
   knowledgeCards,
   pdfAnnotations,
   onModeChange,
+  onGoToSegment,
   onHoverNoteSource,
   onThemeChange,
   onApplyTheme,
@@ -3783,6 +3891,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   onDefineSelection,
   isDefiningSelection,
   onDeleteHighlight,
+  onOrganizeHighlights,
   onDeleteKnowledgeCard,
   onNoteChange,
   onRespondToNote,
@@ -3879,19 +3988,12 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
       <div className="min-h-0 flex-1 overflow-auto pr-2">
         {mode === 'annotations' && (
           <AnnotationWorkspace
-            activeTranslation={activeTranslation}
-            highlights={highlights}
-            knowledgeCards={knowledgeCards}
-            pdfAnnotations={pdfAnnotations}
-            note={note}
-            noteAnchors={noteAnchors}
-            noteResponse={note?.llmResponse || ''}
-            onNoteChange={onNoteChange}
-            onRespondToNote={onRespondToNote}
-            isRespondingToNote={isRespondingToNote}
-            onHoverNoteSource={onHoverNoteSource}
+            highlights={bookHighlights}
+            organizedHighlights={organizedHighlights}
+            isOrganizingHighlights={isOrganizingHighlights}
+            onOrganizeHighlights={onOrganizeHighlights}
+            onGoToSegment={onGoToSegment}
             onDeleteHighlight={onDeleteHighlight}
-            onDeleteKnowledgeCard={onDeleteKnowledgeCard}
           />
         )}
         {mode === 'argument' && (
@@ -3920,19 +4022,12 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
 };
 
 interface AnnotationWorkspaceProps {
-  activeTranslation: TranslatedSegment | null;
-  highlights: Highlight[];
-  knowledgeCards: KnowledgeCard[];
-  pdfAnnotations: EmbeddedPdfAnnotation[];
-  note: ReaderNote | null;
-  noteResponse: string;
-  noteAnchors: HoverAnchor[];
-  onNoteChange: (body: string) => void;
-  onRespondToNote: () => void;
-  isRespondingToNote: boolean;
-  onHoverNoteSource: (text: string) => void;
+  highlights: BookHighlightItem[];
+  organizedHighlights: HighlightOrganization | null;
+  isOrganizingHighlights: boolean;
+  onOrganizeHighlights: () => void;
+  onGoToSegment: (segmentIndex: number) => void;
   onDeleteHighlight: (highlightId: string) => void;
-  onDeleteKnowledgeCard: (cardId: string) => void;
 }
 
 const WorkspaceEmptyState: React.FC<{ title: string; body: string }> = ({ title, body }) => (
@@ -3943,60 +4038,108 @@ const WorkspaceEmptyState: React.FC<{ title: string; body: string }> = ({ title,
 );
 
 const AnnotationWorkspace: React.FC<AnnotationWorkspaceProps> = ({
-  activeTranslation,
   highlights,
-  knowledgeCards,
-  pdfAnnotations,
-  note,
-  noteResponse,
-  noteAnchors,
-  onNoteChange,
-  onRespondToNote,
-  isRespondingToNote,
-  onHoverNoteSource,
+  organizedHighlights,
+  isOrganizingHighlights,
+  onOrganizeHighlights,
+  onGoToSegment,
   onDeleteHighlight,
-  onDeleteKnowledgeCard,
 }) => {
-  const { t } = useTranslation();
+  const highlightById = useMemo(
+    () => new Map(highlights.map((highlight) => [highlight.id, highlight])),
+    [highlights],
+  );
+  const topics = organizedHighlights?.topics || [];
 
   return (
     <div className="space-y-5">
-      <section>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Reader Note</p>
-        <textarea
-          value={note?.body || ''}
-          onChange={(event) => onNoteChange(event.target.value)}
-          placeholder="Write an interpretation, objection, question, or synthesis for this passage."
-          className="mt-3 min-h-28 w-full resize-none rounded-md border border-zinc-300 bg-white p-3 text-sm leading-6 outline-none focus:border-[#007aff] focus:ring-2 focus:ring-[#007aff]/20"
-        />
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <p className="text-xs text-zinc-400">Saved locally with this passage.</p>
+      <section className="rounded-md border border-zinc-200 bg-white p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Highlights</p>
+            <p className="mt-1 text-sm leading-6 text-zinc-600">All saved highlights in this book, across original and translation pages.</p>
+          </div>
           <button
             type="button"
-            onClick={onRespondToNote}
-            disabled={isRespondingToNote || !note?.body.trim()}
-            className="flex h-8 items-center gap-2 rounded-md bg-[#007aff] px-3 text-xs font-medium text-white hover:bg-[#0066cc] disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={onOrganizeHighlights}
+            disabled={isOrganizingHighlights || highlights.length === 0}
+            className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-[#007aff] px-3 text-xs font-medium text-white hover:bg-[#0066cc] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isRespondingToNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            Ask AI
+            {isOrganizingHighlights ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            Organize
           </button>
         </div>
+        {organizedHighlights?.overview && (
+          <p className="mt-4 rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-sm leading-6 text-blue-950">{organizedHighlights.overview}</p>
+        )}
       </section>
 
-      <GuideView
-        activeTranslation={activeTranslation}
-        highlights={highlights}
-        knowledgeCards={knowledgeCards}
-        pdfAnnotations={pdfAnnotations}
-        noteResponse={noteResponse}
-        noteAnchors={noteAnchors}
-        onHoverNoteSource={onHoverNoteSource}
-        onDeleteHighlight={onDeleteHighlight}
-        onDeleteKnowledgeCard={onDeleteKnowledgeCard}
-      />
+      {topics.length > 0 && (
+        <section className="space-y-3">
+          {topics.map((topic, index) => {
+            const topicHighlights = topic.highlightIds.map((id) => highlightById.get(id)).filter((highlight): highlight is BookHighlightItem => Boolean(highlight));
+
+            return (
+              <div key={`${topic.title}-${index}`} className="rounded-md border border-zinc-200 bg-white p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-950">{topic.title}</p>
+                    {topic.summary && <p className="mt-1 text-xs leading-5 text-zinc-600">{topic.summary}</p>}
+                  </div>
+                  <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-500">{topicHighlights.length}</span>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {topicHighlights.map((highlight) => (
+                    <HighlightRow key={highlight.id} highlight={highlight} onGoToSegment={onGoToSegment} onDeleteHighlight={onDeleteHighlight} />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      )}
+
+      <section className="space-y-2">
+        {highlights.length > 0 ? (
+          highlights.map((highlight) => (
+            <HighlightRow key={highlight.id} highlight={highlight} onGoToSegment={onGoToSegment} onDeleteHighlight={onDeleteHighlight} />
+          ))
+        ) : (
+          <WorkspaceEmptyState title="No highlights yet" body="Highlight passages in the original or translation pane to build a book-level annotation index." />
+        )}
+      </section>
     </div>
   );
 };
+
+const HighlightRow: React.FC<{
+  highlight: BookHighlightItem;
+  onGoToSegment: (segmentIndex: number) => void;
+  onDeleteHighlight: (highlightId: string) => void;
+}> = ({ highlight, onGoToSegment, onDeleteHighlight }) => (
+  <div className="flex items-start gap-2 rounded-sm bg-yellow-100 px-2 py-2 text-xs leading-5 text-zinc-700">
+    <button
+      type="button"
+      onClick={() => onGoToSegment(highlight.segmentIndex)}
+      className="mt-0.5 shrink-0 rounded bg-white/80 px-2 py-0.5 text-[10px] font-semibold uppercase text-zinc-600 hover:bg-white hover:text-[#007aff]"
+      title="Jump to highlight page"
+    >
+      {highlight.pageSide === 'translation' ? 'Tr' : highlight.source === 'pdf' ? 'PDF' : 'Orig'} {highlight.pageNumber || highlight.segmentIndex + 1}
+    </button>
+    <p className="min-w-0 flex-1 font-serif text-sm leading-6 text-zinc-900">{highlight.text}</p>
+    {highlight.savedHighlightId && (
+      <button
+        type="button"
+        onClick={() => onDeleteHighlight(highlight.savedHighlightId!)}
+        className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-yellow-200 hover:text-red-700"
+        title="Delete highlight"
+        aria-label="Delete highlight"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    )}
+  </div>
+);
 
 const ArgumentWorkspace: React.FC<{
   activeTranslation: TranslatedSegment | null;

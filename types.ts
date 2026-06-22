@@ -152,6 +152,25 @@ export interface Highlight {
   createdAt: string;
 }
 
+export interface HighlightTopic {
+  title: string;
+  summary: string;
+  highlightIds: string[];
+}
+
+export interface HighlightOrganization {
+  overview: string;
+  topics: HighlightTopic[];
+}
+
+export interface HighlightOrganizationInput {
+  id: string;
+  segmentIndex: number;
+  pageSide: 'original' | 'translation';
+  text: string;
+  pageNumber?: number;
+}
+
 export interface ReadingProgress {
   bookId: string;
   bookTitle: string;

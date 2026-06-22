@@ -32,6 +32,7 @@ const OPERATION_LIMITS: Record<string, { maxInputCharacters: number; maxOutputTo
   note: { maxInputCharacters: 30000, maxOutputTokens: 700 },
   chat: { maxInputCharacters: 40000, maxOutputTokens: 900 },
   define: { maxInputCharacters: 30000, maxOutputTokens: 600 },
+  organize: { maxInputCharacters: 50000, maxOutputTokens: 10000 },
 };
 
 const normalizeEndpoint = (endpoint: string) => {
