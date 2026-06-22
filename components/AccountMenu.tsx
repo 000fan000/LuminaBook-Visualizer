@@ -195,7 +195,7 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ motherLanguage, mother
       <button
         type="button"
         onClick={() => setIsOpen((current) => !current)}
-        className={`flex items-center justify-center border border-stone-300 bg-[#fffdf8] text-sm font-medium text-stone-800 shadow-sm hover:bg-white ${
+        className={`flex items-center justify-center border border-zinc-300 bg-[#ffffff] text-sm font-medium text-zinc-800 shadow-sm hover:bg-white ${
           session ? 'h-9 w-9 rounded-full' : 'h-10 gap-2 rounded-md px-3'
         }`}
         title={session ? session.user.email || 'Account' : 'Sign in'}
@@ -206,15 +206,15 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ motherLanguage, mother
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-12 z-50 max-h-[80vh] w-[min(420px,calc(100vw-32px))] overflow-y-auto rounded-lg border border-stone-300 bg-[#fffdf8] p-4 shadow-2xl">
+        <div className="absolute right-0 top-12 z-50 max-h-[80vh] w-[min(420px,calc(100vw-32px))] overflow-y-auto rounded-lg border border-zinc-300 bg-[#ffffff] p-4 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">LuminaBook account</p>
-              <h2 className="mt-1 text-lg font-semibold text-stone-950">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">LuminaBook account</p>
+              <h2 className="mt-1 text-lg font-semibold text-zinc-950">
                 {session ? 'Daily reading credits' : 'Continue your reading'}
               </h2>
             </div>
-            <button type="button" onClick={() => setIsOpen(false)} className="rounded p-1 text-stone-500 hover:bg-stone-100">
+            <button type="button" onClick={() => setIsOpen(false)} className="rounded p-1 text-zinc-500 hover:bg-zinc-100">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -225,39 +225,39 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ motherLanguage, mother
               setIsOpen(false);
               onOpenConfig();
             }}
-            className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-md border border-stone-300 bg-white text-sm font-medium text-stone-800 hover:bg-stone-50"
+            className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white text-sm font-medium text-zinc-800 hover:bg-zinc-50"
           >
             <Settings2 className="h-4 w-4" />
             设置 / Config
           </button>
 
           {!configured && (
-            <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            <div className="mt-4 rounded-md border border-orange-300 bg-orange-50 p-3 text-sm text-orange-900">
               Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to enable accounts.
             </div>
           )}
 
           {configured && session && (
             <div className="mt-4 space-y-4">
-              <div className="rounded-md border border-stone-200 bg-[#f8f4eb] p-3">
-                <p className="truncate text-sm font-medium text-stone-900">{session.user.email}</p>
+              <div className="rounded-md border border-zinc-200 bg-[#f9fafb] p-3">
+                <p className="truncate text-sm font-medium text-zinc-900">{session.user.email}</p>
                 {quota ? (
                   <>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-200">
-                      <div className="h-full rounded-full bg-amber-700" style={{ width: `${remainingPercent}%` }} />
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-200">
+                      <div className="h-full rounded-full bg-blue-500" style={{ width: `${remainingPercent}%` }} />
                     </div>
-                    <div className="mt-2 flex justify-between gap-3 text-xs text-stone-600">
+                    <div className="mt-2 flex justify-between gap-3 text-xs text-zinc-600">
                       <span>{formatUnits(quota.remainingUnits)} remaining</span>
                       <span>{formatUnits(quota.allowanceUnits)} daily</span>
                     </div>
                   </>
                 ) : (
-                  <div className="mt-3 flex items-center gap-2 text-sm text-stone-500">
+                  <div className="mt-3 flex items-center gap-2 text-sm text-zinc-500">
                     <Loader2 className="h-4 w-4 animate-spin" /> Loading credits…
                   </div>
                 )}
               </div>
-              <p className="text-xs leading-5 text-stone-500">
+              <p className="text-xs leading-5 text-zinc-500">
                 Credits reset at 00:00 UTC. Your books and reading notes still remain on this device.
               </p>
               {quota?.accountStatus === 'suspended' && (
@@ -265,52 +265,52 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ motherLanguage, mother
                   Funded model usage is suspended for this account. Personal provider profiles remain available.
                 </p>
               )}
-              <button type="button" onClick={toggleUsage} className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-stone-300 text-sm font-medium hover:bg-white">
+              <button type="button" onClick={toggleUsage} className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-zinc-300 text-sm font-medium hover:bg-white">
                 <Activity className="h-4 w-4" /> {showUsage ? 'Hide usage' : 'View usage'}
               </button>
 
               {showUsage && (
-                <div className="space-y-3 border-t border-stone-200 pt-3">
+                <div className="space-y-3 border-t border-zinc-200 pt-3">
                   {!usage ? (
-                    <div className="flex items-center gap-2 text-sm text-stone-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading usage…</div>
+                    <div className="flex items-center gap-2 text-sm text-zinc-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading usage…</div>
                   ) : (
                     <>
                       <div className="grid grid-cols-3 gap-2 text-center">
-                        <div className="rounded-md bg-stone-100 p-2"><p className="text-base font-semibold">{formatUnits(usage.totals.chargedUnits)}</p><p className="text-[10px] uppercase tracking-wide text-stone-500">30d units</p></div>
-                        <div className="rounded-md bg-stone-100 p-2"><p className="text-base font-semibold">{usage.totals.requests}</p><p className="text-[10px] uppercase tracking-wide text-stone-500">Requests</p></div>
-                        <div className="rounded-md bg-stone-100 p-2"><p className="text-base font-semibold">{usage.totals.failedRequests}</p><p className="text-[10px] uppercase tracking-wide text-stone-500">Not charged</p></div>
+                        <div className="rounded-md bg-zinc-100 p-2"><p className="text-base font-semibold">{formatUnits(usage.totals.chargedUnits)}</p><p className="text-[10px] uppercase tracking-wide text-zinc-500">30d units</p></div>
+                        <div className="rounded-md bg-zinc-100 p-2"><p className="text-base font-semibold">{usage.totals.requests}</p><p className="text-[10px] uppercase tracking-wide text-zinc-500">Requests</p></div>
+                        <div className="rounded-md bg-zinc-100 p-2"><p className="text-base font-semibold">{usage.totals.failedRequests}</p><p className="text-[10px] uppercase tracking-wide text-zinc-500">Not charged</p></div>
                       </div>
                       <div>
-                        <div className="mb-2 flex items-center justify-between text-xs text-stone-500"><span>Last 7 days</span><span>weighted units</span></div>
+                        <div className="mb-2 flex items-center justify-between text-xs text-zinc-500"><span>Last 7 days</span><span>weighted units</span></div>
                         <div className="flex h-14 items-end gap-1.5">
                           {usage.days.length ? usage.days.map((day) => (
                             <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center gap-1" title={`${day.date}: ${formatUnits(day.chargedUnits)} units`}>
-                              <div className="w-full rounded-sm bg-amber-700/80" style={{ height: `${Math.max(3, (day.chargedUnits / maxDailyUsage) * 40)}px` }} />
-                              <span className="text-[9px] text-stone-400">{day.date.slice(8)}</span>
+                              <div className="w-full rounded-sm bg-blue-500/80" style={{ height: `${Math.max(3, (day.chargedUnits / maxDailyUsage) * 40)}px` }} />
+                              <span className="text-[9px] text-zinc-400">{day.date.slice(8)}</span>
                             </div>
-                          )) : <p className="text-xs text-stone-400">No funded usage yet.</p>}
+                          )) : <p className="text-xs text-zinc-400">No funded usage yet.</p>}
                         </div>
                       </div>
                       {usage.operations.length > 0 && (
                         <div className="space-y-1.5">
                           {usage.operations.slice(0, 5).map((operation) => (
-                            <div key={operation.operation} className="flex justify-between text-xs"><span className="text-stone-600">{operationLabel(operation.operation)} · {operation.requests}</span><span className="font-medium">{formatUnits(operation.chargedUnits)}</span></div>
+                            <div key={operation.operation} className="flex justify-between text-xs"><span className="text-zinc-600">{operationLabel(operation.operation)} · {operation.requests}</span><span className="font-medium">{formatUnits(operation.chargedUnits)}</span></div>
                           ))}
                         </div>
                       )}
                       {usage.recent.length > 0 && (
-                        <div className="space-y-1 border-t border-stone-200 pt-2">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">Recent</p>
+                        <div className="space-y-1 border-t border-zinc-200 pt-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Recent</p>
                           {usage.recent.slice(0, 4).map((event) => (
                             <div key={event.id} className="flex items-center justify-between gap-3 text-xs">
-                              <span className="truncate text-stone-600">{operationLabel(event.operation)} · {new Date(event.createdAt).toLocaleDateString()}</span>
+                              <span className="truncate text-zinc-600">{operationLabel(event.operation)} · {new Date(event.createdAt).toLocaleDateString()}</span>
                               <span className={event.status === 'failed' ? 'text-red-700' : 'font-medium'}>{event.status === 'failed' ? 'not charged' : formatUnits(event.chargedUnits)}</span>
                             </div>
                           ))}
                         </div>
                       )}
                       {usage.isAdmin && (
-                        <a href="/admin" className="flex h-9 items-center justify-center gap-2 rounded-md bg-amber-800 text-sm font-medium text-white hover:bg-amber-700">
+                        <a href="/admin" className="flex h-9 items-center justify-center gap-2 rounded-md bg-blue-600 text-sm font-medium text-white hover:bg-blue-500">
                           Open admin dashboard <ExternalLink className="h-4 w-4" />
                         </a>
                       )}
@@ -319,10 +319,10 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ motherLanguage, mother
                 </div>
               )}
               <div className="flex gap-2">
-                <button type="button" onClick={() => refreshQuota()} className="flex h-9 flex-1 items-center justify-center gap-2 rounded-md border border-stone-300 text-sm hover:bg-white">
+                <button type="button" onClick={() => refreshQuota()} className="flex h-9 flex-1 items-center justify-center gap-2 rounded-md border border-zinc-300 text-sm hover:bg-white">
                   <RefreshCw className="h-4 w-4" /> Refresh
                 </button>
-                <button type="button" onClick={signOut} disabled={isWorking} className="flex h-9 flex-1 items-center justify-center gap-2 rounded-md bg-stone-950 text-sm text-white hover:bg-stone-800 disabled:opacity-50">
+                <button type="button" onClick={signOut} disabled={isWorking} className="flex h-9 flex-1 items-center justify-center gap-2 rounded-md bg-[#007aff] text-sm text-white hover:bg-[#0066cc] disabled:opacity-50">
                   <LogOut className="h-4 w-4" /> Sign out
                 </button>
               </div>
@@ -332,37 +332,37 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ motherLanguage, mother
           {configured && !session && (
             <form onSubmit={submit} className="mt-4 space-y-3">
               <label className="block">
-                <span className="text-xs font-medium text-stone-600">Email</span>
-                <input type="email" required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400" />
+                <span className="text-xs font-medium text-zinc-600">Email</span>
+                <input type="email" required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400" />
               </label>
               <label className="block">
-                <span className="text-xs font-medium text-stone-600">Password</span>
-                <input type="password" required minLength={8} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400" />
+                <span className="text-xs font-medium text-zinc-600">Password</span>
+                <input type="password" required minLength={8} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400" />
               </label>
               {mode === 'signup' && (
                 <label className="block">
-                  <span className="text-xs font-medium text-stone-600">母语 / Mother language</span>
+                  <span className="text-xs font-medium text-zinc-600">母语 / Mother language</span>
                   <select
                     required
                     value={signupMotherLanguage}
                     onChange={(event) => setSignupMotherLanguage(event.target.value)}
-                    className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+                    className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
                   >
                     {motherLanguages.map((language) => <option key={language} value={language}>{language}</option>)}
                   </select>
                 </label>
               )}
-              <button type="submit" disabled={isWorking} className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-stone-950 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50">
+              <button type="submit" disabled={isWorking} className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#007aff] text-sm font-medium text-white hover:bg-[#0066cc] disabled:opacity-50">
                 {isWorking ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === 'signin' ? <LogIn className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
                 {mode === 'signin' ? 'Sign in' : 'Create account'}
               </button>
-              <button type="button" onClick={() => { setMode((current) => current === 'signin' ? 'signup' : 'signin'); setError(''); setMessage(''); }} className="w-full text-center text-xs font-medium text-stone-600 hover:text-stone-950">
+              <button type="button" onClick={() => { setMode((current) => current === 'signin' ? 'signup' : 'signin'); setError(''); setMessage(''); }} className="w-full text-center text-xs font-medium text-zinc-600 hover:text-zinc-950">
                 {mode === 'signin' ? 'Need an account? Register with email' : 'Already registered? Sign in'}
               </button>
             </form>
           )}
 
-          {message && <p className="mt-3 rounded-md bg-emerald-50 p-2 text-xs text-emerald-800">{message}</p>}
+          {message && <p className="mt-3 rounded-md bg-green-50 p-2 text-xs text-green-800">{message}</p>}
           {error && <p className="mt-3 rounded-md bg-red-50 p-2 text-xs text-red-800">{error}</p>}
         </div>
       )}

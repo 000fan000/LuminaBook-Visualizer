@@ -44,6 +44,28 @@ export interface SourceSegment {
   firstPage?: number;
   lastPage?: number;
   href?: string;
+  pdfAnnotations?: EmbeddedPdfAnnotation[];
+}
+
+export type EmbeddedPdfAnnotationKind =
+  | 'highlight'
+  | 'note'
+  | 'freeText'
+  | 'underline'
+  | 'squiggly'
+  | 'strikeout'
+  | 'ink'
+  | 'other';
+
+export interface EmbeddedPdfAnnotation {
+  id: string;
+  pageNumber: number;
+  kind: EmbeddedPdfAnnotationKind;
+  text: string;
+  note?: string;
+  author?: string;
+  color?: string;
+  modifiedAt?: string;
 }
 
 export interface TranslatedSegment extends SourceSegment {

@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
-import { BookMetadata, SourceSegment, TocEntry, UploadedBook } from '../types';
+import { BookMetadata, EmbeddedPdfAnnotation, EmbeddedPdfAnnotationKind, SourceSegment, TocEntry, UploadedBook } from '../types';
 import { readPdfTextContent } from './pdfTextContent';
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -698,16 +698,169 @@ const readPdfPageText = async (page: any) => {
   return normalizeReadableText(text);
 };
 
+const readPdfString = (value: unknown) => {
+  if (!value) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    return normalizeWhitespace(value);
+  }
+
+  if (typeof value === 'object' && 'str' in value) {
+    return normalizeWhitespace(String((value as { str?: unknown }).str || ''));
+  }
+
+  return normalizeWhitespace(String(value));
+};
+
+const getPdfAnnotationKind = (subtype: string): EmbeddedPdfAnnotationKind => {
+  switch (subtype) {
+    case 'Highlight':
+      return 'highlight';
+    case 'Text':
+    case 'Popup':
+      return 'note';
+    case 'FreeText':
+      return 'freeText';
+    case 'Underline':
+      return 'underline';
+    case 'Squiggly':
+      return 'squiggly';
+    case 'StrikeOut':
+      return 'strikeout';
+    case 'Ink':
+      return 'ink';
+    default:
+      return 'other';
+  }
+};
+
+const getPdfAnnotationColor = (annotation: any) => {
+  const color = annotation.color || annotation.borderColor;
+
+  if (!Array.isArray(color) && !(color instanceof Uint8ClampedArray) && !(color instanceof Uint8Array)) {
+    return undefined;
+  }
+
+  const values = Array.from(color).slice(0, 3).map((value) => Math.round(Number(value)));
+
+  if (values.length < 3 || values.some((value) => !Number.isFinite(value))) {
+    return undefined;
+  }
+
+  return `#${values.map((value) => value.toString(16).padStart(2, '0')).join('')}`;
+};
+
+const getPdfAnnotationRect = (annotation: any): [number, number, number, number] | null => {
+  const rect = Array.isArray(annotation.rect) ? annotation.rect.map(Number) : [];
+
+  if (rect.length < 4 || rect.some((value) => !Number.isFinite(value))) {
+    return null;
+  }
+
+  return [
+    Math.min(rect[0], rect[2]),
+    Math.min(rect[1], rect[3]),
+    Math.max(rect[0], rect[2]),
+    Math.max(rect[1], rect[3]),
+  ];
+};
+
+const rectanglesOverlap = (
+  first: [number, number, number, number],
+  second: [number, number, number, number],
+) => first[0] <= second[2] && first[2] >= second[0] && first[1] <= second[3] && first[3] >= second[1];
+
+const extractPdfAnnotationText = async (page: any, annotation: any) => {
+  const rect = getPdfAnnotationRect(annotation);
+
+  if (!rect) {
+    return '';
+  }
+
+  const textContent = await readPdfTextContent(page, {
+    includeMarkedContent: true,
+    disableNormalization: true,
+  });
+  const rawItems = (textContent.items || []).filter((item: any) => item?.str);
+  const rows: Array<{ y: number; fontHeight: number; items: any[] }> = [];
+
+  for (const item of rawItems) {
+    const str = String(item.str || '').trim();
+    const x = Number(item.transform?.[4] || 0);
+    const y = Number(item.transform?.[5] || 0);
+    const fontHeight = getItemFontHeight(item);
+    const width = Number(item.width || str.length * fontHeight * 0.45);
+    const itemRect: [number, number, number, number] = [
+      x,
+      y - fontHeight * 0.3,
+      x + Math.max(width, fontHeight * 0.2),
+      y + fontHeight,
+    ];
+
+    if (!str || !rectanglesOverlap(rect, itemRect)) {
+      continue;
+    }
+
+    const existing = rows.find((row) => Math.abs(row.y - y) <= Math.max(2, fontHeight * 0.28));
+
+    if (existing) {
+      existing.items.push(item);
+      existing.y = (existing.y * (existing.items.length - 1) + y) / existing.items.length;
+      existing.fontHeight = Math.max(existing.fontHeight, fontHeight);
+    } else {
+      rows.push({ y, fontHeight, items: [item] });
+    }
+  }
+
+  return normalizeReadableText(rows.sort((a, b) => b.y - a.y).map((row) => joinPdfLineItems(row.items)).join('\n'));
+};
+
+const readPdfPageAnnotations = async (page: any, pageNumber: number): Promise<EmbeddedPdfAnnotation[]> => {
+  const annotations = await page.getAnnotations({ intent: 'display' }).catch(() => []);
+  const readableAnnotations = annotations.filter((annotation: any) => {
+    const subtype = String(annotation.subtype || '');
+    return ['Highlight', 'Text', 'FreeText', 'Underline', 'Squiggly', 'StrikeOut', 'Ink', 'Popup'].includes(subtype);
+  });
+
+  const results: EmbeddedPdfAnnotation[] = [];
+
+  for (const annotation of readableAnnotations) {
+    const subtype = String(annotation.subtype || '');
+    const note = readPdfString(annotation.contentsObj || annotation.contents);
+    const text = await extractPdfAnnotationText(page, annotation);
+
+    if (!text && !note) {
+      continue;
+    }
+
+    results.push({
+      id: String(annotation.id || `pdf-annotation-${pageNumber}-${results.length}`),
+      pageNumber,
+      kind: getPdfAnnotationKind(subtype),
+      text,
+      note: note || undefined,
+      author: readPdfString(annotation.titleObj || annotation.title) || undefined,
+      color: getPdfAnnotationColor(annotation),
+      modifiedAt: readPdfString(annotation.modificationDate || annotation.modifiedAt) || undefined,
+    });
+  }
+
+  return results;
+};
+
 const readPdfDocument = async (pdf: any) => {
-  const pages: Array<{ pageNumber: number; text: string; footnotes: string[] }> = [];
+  const pages: Array<{ pageNumber: number; text: string; footnotes: string[]; annotations: EmbeddedPdfAnnotation[] }> = [];
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
     const page = await pdf.getPage(pageNumber);
     const pageText = await readPdfPageText(page);
+    const annotations = await readPdfPageAnnotations(page, pageNumber);
     const { mainText, footnotes } = splitFootnotes(pageText);
 
-    if (mainText.trim() || footnotes.length) {
-      pages.push({ pageNumber, text: mainText, footnotes });
+    if (mainText.trim() || footnotes.length || annotations.length) {
+      pages.push({ pageNumber, text: mainText, footnotes, annotations });
     }
   }
 
@@ -768,13 +921,14 @@ const readPdfToc = async (pdf: any): Promise<TocEntry[]> => {
   return entries.filter((entry) => entry.title);
 };
 
-const createPdfSegments = (pages: Array<{ pageNumber: number; text: string; footnotes: string[] }>): SourceSegment[] => {
+const createPdfSegments = (pages: Array<{ pageNumber: number; text: string; footnotes: string[]; annotations: EmbeddedPdfAnnotation[] }>): SourceSegment[] => {
   const segments: SourceSegment[] = [];
 
   for (let index = 0; index < pages.length; index += PDF_PAGE_GROUP_SIZE) {
     const group = pages.slice(index, index + PDF_PAGE_GROUP_SIZE);
     const sourceText = normalizeReadableText(group.map((page) => page.text).join('\n\n'));
     const footnotes = group.flatMap((page) => page.footnotes.map((note) => `p. ${page.pageNumber}: ${note}`));
+    const pdfAnnotations = group.flatMap((page) => page.annotations);
     const firstPage = group[0].pageNumber;
     const lastPage = group[group.length - 1].pageNumber;
 
@@ -787,6 +941,7 @@ const createPdfSegments = (pages: Array<{ pageNumber: number; text: string; foot
       label: firstPage === lastPage ? `Page ${firstPage}` : `Pages ${firstPage}-${lastPage}`,
       firstPage,
       lastPage,
+      pdfAnnotations,
     });
   }
 

@@ -62,6 +62,7 @@ import { DISPLAY_LANGUAGES } from './i18n';
 import {
   Bookmark,
   BookMetadata,
+  EmbeddedPdfAnnotation,
   Highlight,
   KnowledgeCard,
   LlmAnnotation,
@@ -199,8 +200,8 @@ const DEFAULT_READING_THEMES: ReadingTheme[] = [
     lineHeight: 1.85,
     paragraphSpacing: 16,
     textAlign: 'left',
-    background: '#fffdf8',
-    textColor: '#1c1917',
+    background: '#ffffff',
+    textColor: '#1d1d1f',
   },
   {
     id: 'paper',
@@ -210,8 +211,8 @@ const DEFAULT_READING_THEMES: ReadingTheme[] = [
     lineHeight: 1.95,
     paragraphSpacing: 18,
     textAlign: 'justify',
-    background: '#f7f1e3',
-    textColor: '#292524',
+    background: '#fbfaf7',
+    textColor: '#1d1d1f',
   },
   {
     id: 'focus',
@@ -232,8 +233,8 @@ const DEFAULT_READING_THEMES: ReadingTheme[] = [
     lineHeight: 1.9,
     paragraphSpacing: 16,
     textAlign: 'left',
-    background: '#1f1d1b',
-    textColor: '#f5efe6',
+    background: '#1c1c1e',
+    textColor: '#f5f5f7',
   },
 ];
 
@@ -1733,22 +1734,22 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   const { t } = useTranslation();
 
   return (
-  <div className="min-h-screen bg-[#f5f1e8] text-stone-950">
+  <div className="min-h-screen bg-[#f5f5f7] text-zinc-950">
     <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-6">
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-md bg-stone-950 text-[#f5f1e8]">
+        <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[#007aff] text-white">
           <Library className="h-5 w-5" />
         </div>
         <div>
           <h1 className="text-xl font-semibold tracking-normal">LuminaBook</h1>
-          <p className="text-sm text-stone-600">{t('library.subtitle')}</p>
+          <p className="text-sm text-zinc-600">{t('library.subtitle')}</p>
         </div>
       </div>
       <div className="flex items-center gap-2">
         <button
           onClick={onExportShelfInfo}
           disabled={!books.length}
-          className="flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 shadow-sm hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
+          className="flex h-10 items-center gap-2 rounded-md border border-zinc-300 bg-[#ffffff] px-3 text-sm font-medium text-zinc-800 shadow-sm hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
           title={t('library.shelfJsonTitle')}
         >
           <Download className="h-4 w-4" />
@@ -1766,14 +1767,14 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     <main className="mx-auto max-w-7xl px-5 pb-12 pt-6">
       <section>
         <div className="max-w-3xl">
-          <p className="text-sm font-medium uppercase tracking-[0.18em] text-stone-500">{t('library.eyebrow')}</p>
+          <p className="text-sm font-medium uppercase tracking-[0.18em] text-zinc-500">{t('library.eyebrow')}</p>
           <h2 className="mt-3 text-4xl font-semibold leading-tight tracking-normal md:text-6xl">{t('library.title')}</h2>
-          <p className="mt-5 max-w-2xl text-lg leading-8 text-stone-600">
+          <p className="mt-5 max-w-2xl text-lg leading-8 text-zinc-600">
             {t('library.description')}
           </p>
         </div>
 
-        <div className="mt-10 rounded-md border border-stone-300 bg-[#e8ddca] px-5 py-6 shadow-inner">
+        <div className="mt-10 rounded-md border border-zinc-300 bg-[#f2f2f7] px-5 py-6 shadow-inner">
           <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
             <UploadCoverTile isParsing={isParsing || isLibraryLoading} onFileUpload={onFileUpload} />
             {books.map((book) => {
@@ -1796,7 +1797,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
               );
             })}
           </div>
-          {isLibraryLoading && <p className="mt-4 text-sm text-stone-600">{t('library.loading')}</p>}
+          {isLibraryLoading && <p className="mt-4 text-sm text-zinc-600">{t('library.loading')}</p>}
         </div>
 
         {!isConfigOpen && <StatusMessage statusMessage={statusMessage} errorMessage={errorMessage} />}
@@ -1887,31 +1888,31 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
   const usesDailyCredits = settings.provider === PLATFORM_PROVIDER_ID;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/35 px-4 py-6 backdrop-blur-sm">
-      <section className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-md border border-stone-300 bg-[#fffdf8] p-5 shadow-2xl">
-        <div className="mb-5 flex items-center justify-between gap-3 border-b border-stone-200 pb-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-stone-950 text-[#f5f1e8]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/35 px-4 py-6 backdrop-blur-sm">
+      <section className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-md border border-zinc-300 bg-[#ffffff] p-5 shadow-2xl">
+        <div className="mb-5 flex items-center justify-between gap-3 border-b border-zinc-200 pb-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[#007aff] text-white">
             <Settings2 className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-semibold">{t('config.title')}</h2>
-            <p className="text-sm text-stone-600">{t('config.description')}</p>
+            <p className="text-sm text-zinc-600">{t('config.description')}</p>
           </div>
-          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-stone-100">
+          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-zinc-100">
             <X className="h-5 w-5" />
           </button>
         </div>
 
         <div className="grid gap-5 md:grid-cols-2">
           <section className="space-y-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
+            <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
               <Languages className="h-4 w-4" />
               {t('config.motherLanguage')}
             </div>
             <select
               value={motherLanguage}
               onChange={(event) => onMotherLanguageChange(event.target.value)}
-              className="h-10 w-full rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+              className="h-10 w-full rounded-md border border-zinc-300 bg-[#f9fafb] px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
             >
               {MOTHER_LANGUAGES.map((language) => (
                 <option key={language} value={language}>
@@ -1922,12 +1923,12 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
             <input
               value={motherLanguage}
               onChange={(event) => onMotherLanguageChange(event.target.value)}
-              className="h-10 w-full rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+              className="h-10 w-full rounded-md border border-zinc-300 bg-[#f9fafb] px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               placeholder={t('config.otherLanguage')}
             />
-            <p className="text-xs leading-5 text-stone-500">{t('config.motherLanguageHint')}</p>
-            <div className="border-t border-stone-200 pt-3">
-              <label className="flex items-center gap-2 text-sm font-semibold text-stone-800" htmlFor="display-language">
+            <p className="text-xs leading-5 text-zinc-500">{t('config.motherLanguageHint')}</p>
+            <div className="border-t border-zinc-200 pt-3">
+              <label className="flex items-center gap-2 text-sm font-semibold text-zinc-800" htmlFor="display-language">
                 <Languages className="h-4 w-4" />
                 {t('config.displayLanguage')}
               </label>
@@ -1935,25 +1936,25 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
                 id="display-language"
                 value={i18n.resolvedLanguage || i18n.language}
                 onChange={(event) => void i18n.changeLanguage(event.target.value)}
-                className="mt-3 h-10 w-full rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+                className="mt-3 h-10 w-full rounded-md border border-zinc-300 bg-[#f9fafb] px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
               >
                 {DISPLAY_LANGUAGES.map((language) => (
                   <option key={language.code} value={language.code}>{language.label}</option>
                 ))}
               </select>
-              <p className="mt-2 text-xs leading-5 text-stone-500">{t('config.displayLanguageHint')}</p>
+              <p className="mt-2 text-xs leading-5 text-zinc-500">{t('config.displayLanguageHint')}</p>
             </div>
           </section>
 
           <section className="space-y-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
+            <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
               <Sparkles className="h-4 w-4" />
               {t('config.activeModel')}
             </div>
             <select
               value={activeLlmProfileId}
               onChange={(event) => onSelectLlmProfile(event.target.value)}
-              className="h-10 w-full rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+              className="h-10 w-full rounded-md border border-zinc-300 bg-[#f9fafb] px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
             >
               {llmProfiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
@@ -1961,29 +1962,29 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
                 </option>
               ))}
             </select>
-            <div className="rounded-md border border-stone-200 bg-[#fbf8f1] px-3 py-2 text-xs leading-5 text-stone-600">
-              <p className="font-medium text-stone-800">{settings.model}</p>
+            <div className="rounded-md border border-zinc-200 bg-[#f9fafb] px-3 py-2 text-xs leading-5 text-zinc-600">
+              <p className="font-medium text-zinc-800">{settings.model}</p>
               <p className="truncate">{settings.endpoint}</p>
               <p>{maskApiKey(settings.apiKey)}</p>
             </div>
           </section>
         </div>
 
-        <section className="mt-6 border-t border-stone-200 pt-5">
+        <section className="mt-6 border-t border-zinc-200 pt-5">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
+            <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
               <KeyRound className="h-4 w-4" />
               Model Configs
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <button
                 onClick={onExportLlmProfiles}
-                className="flex h-8 items-center gap-2 rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-xs font-medium text-stone-800 hover:bg-white"
+                className="flex h-8 items-center gap-2 rounded-md border border-zinc-300 bg-[#f9fafb] px-3 text-xs font-medium text-zinc-800 hover:bg-white"
               >
                 <FileText className="h-3.5 w-3.5" />
                 Download JSON
               </button>
-              <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-xs font-medium text-stone-800 hover:bg-white">
+              <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md border border-zinc-300 bg-[#f9fafb] px-3 text-xs font-medium text-zinc-800 hover:bg-white">
                 <Upload className="h-3.5 w-3.5" />
                 Upload JSON
                 <input
@@ -1996,7 +1997,7 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
                   }}
                 />
               </label>
-              <span className="text-xs text-stone-500">{llmProfiles.length} saved</span>
+              <span className="text-xs text-zinc-500">{llmProfiles.length} saved</span>
             </div>
           </div>
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
@@ -2010,17 +2011,17 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
                     key={profile.id}
                     onClick={() => onSelectLlmProfile(profile.id)}
                     className={`w-full rounded-md border p-3 text-left transition ${
-                      isActive ? 'border-stone-950 bg-stone-100' : 'border-stone-200 bg-[#fbf8f1] hover:bg-white'
+                      isActive ? 'border-zinc-950 bg-zinc-100' : 'border-zinc-200 bg-[#f9fafb] hover:bg-white'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-stone-900">{profile.name}</p>
-                        <p className="mt-1 truncate text-xs text-stone-500">{getProfileSubtitle(profile)}</p>
+                        <p className="truncate text-sm font-semibold text-zinc-900">{profile.name}</p>
+                        <p className="mt-1 truncate text-xs text-zinc-500">{getProfileSubtitle(profile)}</p>
                       </div>
-                      {isActive && <Check className="mt-0.5 h-4 w-4 shrink-0 text-stone-950" />}
+                      {isActive && <Check className="mt-0.5 h-4 w-4 shrink-0 text-zinc-950" />}
                     </div>
-                    <div className="mt-3 grid gap-1 text-xs text-stone-500">
+                    <div className="mt-3 grid gap-1 text-xs text-zinc-500">
                       <span>Status: {usage.lastStatus}</span>
                       <span>Last: {usage.lastUsage}</span>
                       <span>
@@ -2035,11 +2036,11 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
               })}
             </div>
 
-            <div className="rounded-md border border-stone-200 bg-[#fbf8f1] p-3">
+            <div className="rounded-md border border-zinc-200 bg-[#f9fafb] p-3">
               {usesDailyCredits ? (
                 <div>
-                  <span className="text-xs font-medium text-stone-600">Config Name</span>
-                  <div className="mt-1 flex h-10 items-center rounded-md border border-stone-300 bg-stone-100 px-3 text-sm font-semibold text-stone-800">
+                  <span className="text-xs font-medium text-zinc-600">Config Name</span>
+                  <div className="mt-1 flex h-10 items-center rounded-md border border-zinc-300 bg-zinc-100 px-3 text-sm font-semibold text-zinc-800">
                     {PLATFORM_PROVIDER_LABEL}
                   </div>
                 </div>
@@ -2048,17 +2049,17 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
               )}
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <label className="block">
-                  <span className="text-xs font-medium text-stone-600">Provider</span>
+                  <span className="text-xs font-medium text-zinc-600">Provider</span>
                   {usesDailyCredits ? (
-                    <div className="mt-1 flex h-10 items-center justify-between rounded-md border border-stone-300 bg-stone-100 px-3 text-sm">
+                    <div className="mt-1 flex h-10 items-center justify-between rounded-md border border-zinc-300 bg-zinc-100 px-3 text-sm">
                       <span>{PLATFORM_PROVIDER_LABEL}</span>
-                      <span className="text-xs font-medium text-stone-500">Locked</span>
+                      <span className="text-xs font-medium text-zinc-500">Locked</span>
                     </div>
                   ) : (
                     <select
                       value={settings.provider}
                       onChange={(event) => onProviderChange(event.target.value)}
-                      className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+                      className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-[#ffffff] px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
                     >
                       {PROVIDER_PRESETS.map((provider) => (
                         <option key={provider.id} value={provider.id}>
@@ -2069,17 +2070,17 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
                   )}
                 </label>
                 <label className="block">
-                  <span className="text-xs font-medium text-stone-600">Preset Model</span>
+                  <span className="text-xs font-medium text-zinc-600">Preset Model</span>
                   {usesDailyCredits ? (
-                    <div className="mt-1 flex h-10 items-center justify-between rounded-md border border-stone-300 bg-stone-100 px-3 text-sm">
+                    <div className="mt-1 flex h-10 items-center justify-between rounded-md border border-zinc-300 bg-zinc-100 px-3 text-sm">
                       <span>{PLATFORM_PROVIDER_MODEL}</span>
-                      <span className="text-xs font-medium text-stone-500">Locked</span>
+                      <span className="text-xs font-medium text-zinc-500">Locked</span>
                     </div>
                   ) : (
                     <select
                       value={settings.model}
                       onChange={(event) => onSettingsChange('model', event.target.value)}
-                      className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+                      className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-[#ffffff] px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
                     >
                       {selectedProvider.models.map((model) => (
                         <option key={model} value={model}>
@@ -2091,13 +2092,13 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
                 </label>
               </div>
               {usesDailyCredits ? (
-                <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                <div className="mt-3 rounded-md border border-orange-200 bg-orange-50 p-3 text-xs leading-5 text-orange-900">
                   <p className="font-semibold">{PLATFORM_PROVIDER_LABEL} is managed by LuminaBook.</p>
                   <p className="mt-1">Model: {PLATFORM_PROVIDER_MODEL}. Endpoint, API key, model, temperature, JSON mode, timeout, and system prompt are fixed by the platform and cannot be edited in the browser.</p>
                   <button
                     type="button"
                     onClick={() => onProviderChange('openai')}
-                    className="mt-2 rounded-md border border-amber-300 bg-white px-3 py-1.5 font-medium text-amber-950 hover:bg-amber-100"
+                    className="mt-2 rounded-md border border-orange-300 bg-white px-3 py-1.5 font-medium text-orange-950 hover:bg-orange-100"
                   >
                     Add personal config
                   </button>
@@ -2106,7 +2107,7 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
                 <>
                   <SettingsField label="Endpoint" value={settings.endpoint} onChange={(value) => onSettingsChange('endpoint', value)} />
                   <SettingsField label="API Key" value={settings.apiKey} onChange={(value) => onSettingsChange('apiKey', value)} type="password" />
-                  <p className="mt-1 text-xs text-stone-500">Saved key: {maskApiKey(settings.apiKey)}</p>
+                  <p className="mt-1 text-xs text-zinc-500">Saved key: {maskApiKey(settings.apiKey)}</p>
                   <SettingsField label="Model" value={settings.model} onChange={(value) => onSettingsChange('model', value)} />
                 </>
               )}
@@ -2130,47 +2131,47 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
                       onChange={(value) => onSettingsChange('requestTimeoutMs', Math.max(30, value) * 1000)}
                     />
                   </div>
-                  <label className="mt-3 flex items-center gap-2 text-sm text-stone-700">
+                  <label className="mt-3 flex items-center gap-2 text-sm text-zinc-700">
                     <input
                       type="checkbox"
                       checked={settings.useJsonMode}
                       onChange={(event) => onSettingsChange('useJsonMode', event.target.checked)}
-                      className="h-4 w-4 accent-stone-950"
+                      className="h-4 w-4 accent-blue-950"
                     />
                     Request JSON mode when provider supports it
                   </label>
                   <label className="mt-3 block">
-                    <span className="text-xs font-medium text-stone-600">System Prompt</span>
+                    <span className="text-xs font-medium text-zinc-600">System Prompt</span>
                     <textarea
                       value={settings.systemPrompt}
                       onChange={(event) => onSettingsChange('systemPrompt', event.target.value)}
-                      className="mt-1 h-32 w-full resize-none rounded-md border border-stone-300 bg-[#fffdf8] p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-stone-400"
+                      className="mt-1 h-32 w-full resize-none rounded-md border border-zinc-300 bg-[#ffffff] p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-blue-400"
                     />
                   </label>
                 </>
               )}
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 {usesDailyCredits ? (
-                  <span className="text-xs font-medium text-stone-500">Built-in config · no changes to save</span>
+                  <span className="text-xs font-medium text-zinc-500">Built-in config · no changes to save</span>
                 ) : (
                   <>
                     <button
                       onClick={onSaveCurrentLlmProfile}
-                      className="flex h-10 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-[#fffdf8] hover:bg-stone-800"
+                      className="flex h-10 items-center gap-2 rounded-md bg-[#007aff] px-4 text-sm font-medium text-[#ffffff] hover:bg-[#0066cc]"
                     >
                       <Check className="h-4 w-4" />
                       Save
                     </button>
                     <button
                       onClick={onSaveAsNewLlmProfile}
-                      className="flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-4 text-sm font-medium text-stone-800 hover:bg-white"
+                      className="flex h-10 items-center gap-2 rounded-md border border-zinc-300 bg-[#ffffff] px-4 text-sm font-medium text-zinc-800 hover:bg-white"
                     >
                       <Plus className="h-4 w-4" />
                       Save New
                     </button>
                     <button
                       onClick={() => onDeleteLlmProfile(activeLlmProfileId)}
-                      className="flex h-10 items-center gap-2 rounded-md border border-stone-300 px-4 text-sm font-medium text-stone-600 hover:bg-stone-100"
+                      className="flex h-10 items-center gap-2 rounded-md border border-zinc-300 px-4 text-sm font-medium text-zinc-600 hover:bg-zinc-100"
                     >
                       Delete
                     </button>
@@ -2181,8 +2182,8 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
           </div>
         </section>
 
-        <section className="mt-6 border-t border-stone-200 pt-5">
-          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-stone-800">
+        <section className="mt-6 border-t border-zinc-200 pt-5">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-zinc-800">
             <Sparkles className="h-4 w-4" />
             Availability
           </div>
@@ -2190,21 +2191,21 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
             <button
               onClick={onTestProvider}
               disabled={isTestingProvider}
-              className="flex h-10 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-[#fffdf8] hover:bg-stone-800 disabled:cursor-wait disabled:opacity-50"
+              className="flex h-10 items-center gap-2 rounded-md bg-[#007aff] px-4 text-sm font-medium text-[#ffffff] hover:bg-[#0066cc] disabled:cursor-wait disabled:opacity-50"
             >
               {isTestingProvider ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               Test
             </button>
-            {providerStatus && <span className="text-sm text-emerald-700">{providerStatus}</span>}
-            {isTestingProvider && <span className="text-sm text-stone-500">Running {Math.max(0, llmElapsedSeconds)}s</span>}
+            {providerStatus && <span className="text-sm text-green-700">{providerStatus}</span>}
+            {isTestingProvider && <span className="text-sm text-zinc-500">Running {Math.max(0, llmElapsedSeconds)}s</span>}
           </div>
         </section>
 
-        <section className="mt-6 border-t border-stone-200 pt-5">
+        <section className="mt-6 border-t border-zinc-200 pt-5">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-stone-800">LLM Evaluation Log</p>
-              <p className="text-xs leading-5 text-stone-500">
+              <p className="text-sm font-semibold text-zinc-800">LLM Evaluation Log</p>
+              <p className="text-xs leading-5 text-zinc-500">
                 {evaluationRecords.length
                   ? `${evaluationRecords.length} saved run${evaluationRecords.length > 1 ? 's' : ''}. Latest: ${evaluationRecords[0].localTime}`
                   : 'No saved model runs yet.'}
@@ -2214,14 +2215,14 @@ const ConfigDialog: React.FC<ConfigDialogProps> = ({
           <div className="flex flex-wrap gap-3">
             <button
               onClick={onExportEvaluationRecords}
-              className="flex h-10 items-center gap-2 rounded-md border border-stone-300 bg-[#fbf8f1] px-4 text-sm font-medium text-stone-800 hover:bg-white"
+              className="flex h-10 items-center gap-2 rounded-md border border-zinc-300 bg-[#f9fafb] px-4 text-sm font-medium text-zinc-800 hover:bg-white"
             >
               <FileText className="h-4 w-4" />
               Export CSV
             </button>
             <button
               onClick={onClearEvaluationRecords}
-              className="flex h-10 items-center gap-2 rounded-md border border-stone-300 px-4 text-sm font-medium text-stone-600 hover:bg-stone-100"
+              className="flex h-10 items-center gap-2 rounded-md border border-zinc-300 px-4 text-sm font-medium text-zinc-600 hover:bg-zinc-100"
             >
               Clear Log
             </button>
@@ -2358,40 +2359,104 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   const { t } = useTranslation();
   const [isTocOpen, setIsTocOpen] = useState(false);
   const [isAgentOpen, setIsAgentOpen] = useState(false);
+  const [sourceShowHighlights, setSourceShowHighlights] = useState(true);
+  const [sourceShowKnowledgeCards, setSourceShowKnowledgeCards] = useState(true);
+  const [sourceIsFormatOpen, setSourceIsFormatOpen] = useState(false);
   const tocEntries = book.toc || [];
   const annotationCards = useMemo(
     () => buildAnnotationCards(activeTranslation, activeSegment.sourceText),
     [activeTranslation, activeSegment.sourceText],
   );
+  const canFormatSourceText = book.fileType !== 'pdf';
+  const handleSourceHighlightControl = () => {
+    if (getSelectedReaderText()) {
+      onAddHighlight('original');
+      setSourceShowHighlights(true);
+      return;
+    }
+
+    setSourceShowHighlights((current) => !current);
+  };
+  const handleSourceKnowledgeControl = () => {
+    if (getSelectedReaderText()) {
+      onCreateKnowledgeCard('original');
+      setSourceShowKnowledgeCards(true);
+      return;
+    }
+
+    setSourceShowKnowledgeCards((current) => !current);
+  };
 
   return (
-  <div className="flex min-h-screen flex-col bg-[#f2eadc] text-stone-950">
-    <header className="sticky top-0 z-20 border-b border-stone-300/70 bg-[#f2eadc]/95 backdrop-blur">
+  <div className="flex h-screen flex-col overflow-hidden bg-[#f5f5f7] text-zinc-950">
+    <header className="z-20 shrink-0 border-b border-zinc-300/70 bg-[#f5f5f7]/95 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 md:px-6">
-        <button onClick={onBack} className="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-stone-700 hover:bg-stone-200/60">
-          <ArrowLeft className="h-4 w-4" />
-          {t('reader.back')}
-        </button>
+        <div className="flex min-w-0 items-center gap-2">
+          <button onClick={onBack} className="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-zinc-700 hover:bg-zinc-200/60">
+            <ArrowLeft className="h-4 w-4" />
+            <span className="hidden sm:inline">{t('reader.back')}</span>
+          </button>
+          <div className="flex shrink-0 items-center gap-1 rounded-md border border-zinc-300 bg-[#f2f2f7] p-1">
+            <span className="hidden px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 xl:inline">
+              {t('reader.original')}
+            </span>
+            <button
+              type="button"
+              onClick={handleSourceHighlightControl}
+              className={`flex h-7 w-7 items-center justify-center rounded border ${
+                sourceShowHighlights ? 'border-yellow-400 bg-yellow-100 text-yellow-800' : 'border-transparent text-zinc-500 hover:bg-white'
+              }`}
+              title={t(sourceShowHighlights ? 'reader.hideHighlights' : 'reader.showHighlights')}
+              aria-pressed={sourceShowHighlights}
+            >
+              <Highlighter className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={handleSourceKnowledgeControl}
+              className={`flex h-7 w-7 items-center justify-center rounded border ${
+                sourceShowKnowledgeCards ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-transparent text-zinc-500 hover:bg-white'
+              }`}
+              title={t(sourceShowKnowledgeCards ? 'reader.hideCards' : 'reader.showCards')}
+              aria-pressed={sourceShowKnowledgeCards}
+            >
+              <FileText className="h-3.5 w-3.5" />
+            </button>
+            {canFormatSourceText && (
+              <button
+                type="button"
+                onClick={() => setSourceIsFormatOpen((current) => !current)}
+                className={`flex h-7 w-7 items-center justify-center rounded border ${
+                  sourceIsFormatOpen ? 'border-blue-400 bg-white text-blue-700' : 'border-transparent text-zinc-500 hover:bg-white'
+                }`}
+                title={t('reader.tuneOriginal')}
+                aria-pressed={sourceIsFormatOpen}
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
         <div className="relative min-w-0 px-4 text-center">
           <button
             type="button"
             onClick={() => setIsTocOpen((current) => !current)}
             disabled={!tocEntries.length}
-            className="mx-auto flex max-w-[360px] items-center justify-center gap-2 rounded-md px-2 py-1 text-sm font-semibold hover:bg-stone-200/60 disabled:cursor-default disabled:hover:bg-transparent"
+            className="mx-auto flex max-w-[360px] items-center justify-center gap-2 rounded-md px-2 py-1 text-sm font-semibold hover:bg-zinc-200/60 disabled:cursor-default disabled:hover:bg-transparent"
             title={tocEntries.length ? 'Open table of contents' : 'No original table of contents'}
           >
             <span className="truncate">{book.title}</span>
-            <ListTree className={`h-4 w-4 shrink-0 ${tocEntries.length ? 'text-stone-600' : 'text-stone-300'}`} />
+            <ListTree className={`h-4 w-4 shrink-0 ${tocEntries.length ? 'text-zinc-600' : 'text-zinc-300'}`} />
           </button>
-          <p className="text-xs text-stone-500">{getSourcePageLabel(activeSegment)}</p>
+          <p className="text-xs text-zinc-500">{getSourcePageLabel(activeSegment)}</p>
           {isTocOpen && tocEntries.length > 0 && (
-            <div className="absolute left-1/2 top-12 z-30 max-h-[70vh] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 overflow-auto rounded-md border border-stone-300 bg-[#fffdf8] p-2 text-left shadow-xl">
-              <div className="flex items-center justify-between border-b border-stone-200 px-2 py-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">{t('reader.contents')}</p>
+            <div className="absolute left-1/2 top-12 z-30 max-h-[70vh] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 overflow-auto rounded-md border border-zinc-300 bg-[#ffffff] p-2 text-left shadow-xl">
+              <div className="flex items-center justify-between border-b border-zinc-200 px-2 py-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">{t('reader.contents')}</p>
                 <button
                   type="button"
                   onClick={() => setIsTocOpen(false)}
-                  className="flex h-7 w-7 items-center justify-center rounded-sm text-stone-500 hover:bg-stone-100"
+                  className="flex h-7 w-7 items-center justify-center rounded-sm text-zinc-500 hover:bg-zinc-100"
                   title={t('reader.closeContents')}
                 >
                   <X className="h-4 w-4" />
@@ -2413,8 +2478,8 @@ const ReaderView: React.FC<ReaderViewProps> = ({
                         }
                       }}
                       className={`flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left text-sm leading-5 ${
-                        isActive ? 'bg-stone-900 text-[#fffdf8]' : 'text-stone-700 hover:bg-stone-100'
-                      } disabled:cursor-not-allowed disabled:text-stone-400 disabled:hover:bg-transparent`}
+                        isActive ? 'bg-[#007aff] text-[#ffffff]' : 'text-zinc-700 hover:bg-zinc-100'
+                      } disabled:cursor-not-allowed disabled:text-zinc-400 disabled:hover:bg-transparent`}
                       style={{ paddingLeft: `${8 + Math.min(entry.level, 4) * 14}px` }}
                     >
                       <span className="min-w-10 text-xs text-current opacity-60">
@@ -2433,7 +2498,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             value={activeLlmProfileId}
             onChange={(event) => onSelectLlmProfile(event.target.value)}
             disabled={isTranslating}
-            className="hidden h-9 max-w-[190px] rounded-md border border-stone-300 bg-[#fffdf8] px-2 text-xs text-stone-700 outline-none focus:ring-2 focus:ring-stone-400 disabled:opacity-60 md:block"
+            className="hidden h-9 max-w-[190px] rounded-md border border-zinc-300 bg-[#ffffff] px-2 text-xs text-zinc-700 outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-60 md:block"
             title={`${settings.model} · ${settings.endpoint}`}
           >
             {llmProfiles.map((profile) => (
@@ -2445,7 +2510,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
           <button
             onClick={onToggleBookmark}
             className={`flex h-9 w-9 items-center justify-center rounded-md border ${
-              isBookmarked ? 'border-amber-400 bg-amber-100 text-amber-800' : 'border-stone-300 bg-[#fffdf8] text-stone-700'
+              isBookmarked ? 'border-yellow-400 bg-yellow-100 text-yellow-800' : 'border-zinc-300 bg-[#ffffff] text-zinc-700'
             }`}
             title={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
           >
@@ -2454,7 +2519,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
           <button
             onClick={onTranslateCurrent}
             disabled={isTranslating}
-            className="flex h-9 items-center gap-2 rounded-md bg-stone-950 px-3 text-sm font-medium text-[#fffdf8] hover:bg-stone-800 disabled:cursor-wait disabled:opacity-50"
+            className="flex h-9 items-center gap-2 rounded-md bg-[#007aff] px-3 text-sm font-medium text-[#ffffff] hover:bg-[#0066cc] disabled:cursor-wait disabled:opacity-50"
           >
             {isTranslating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             {isTranslating ? t('reader.translating', { seconds: llmElapsedSeconds }) : t('reader.translate')}
@@ -2469,9 +2534,9 @@ const ReaderView: React.FC<ReaderViewProps> = ({
       </div>
     </header>
 
-    <main className="flex-1 px-3 py-5 md:px-6">
-      <div className="mx-auto max-w-7xl">
-        <div className="grid min-h-[calc(100vh-150px)] gap-4 lg:grid-cols-2">
+    <main className="min-h-0 flex-1 px-3 py-4 md:px-6">
+      <div className="mx-auto h-full max-w-7xl">
+        <div className="grid h-full min-h-0 grid-rows-2 gap-4 lg:grid-cols-2 lg:grid-rows-none">
           <BookPage
             eyebrow={t('reader.original')}
             title={activeSegment.sourceLanguage}
@@ -2486,11 +2551,17 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             highlights={highlights.filter((highlight) => highlight.pageSide === 'original')}
             knowledgeCards={knowledgeCards.filter((card) => card.pageSide === 'original')}
             annotations={annotationCards}
+            pdfAnnotations={activeSegment.pdfAnnotations || []}
             hoverHighlightText={hoveredNoteSourceText}
             onAddHighlight={(text) => onAddHighlight('original', text)}
             onDefineSelection={(text) => onDefineSelection('original', text)}
             isDefiningSelection={isDefiningSelection}
             onCreateKnowledgeCard={() => onCreateKnowledgeCard('original')}
+            showHighlights={sourceShowHighlights}
+            onShowHighlightsChange={setSourceShowHighlights}
+            showKnowledgeCards={sourceShowKnowledgeCards}
+            onShowKnowledgeCardsChange={setSourceShowKnowledgeCards}
+            isFormatOpen={sourceIsFormatOpen}
             onThemeChange={onSourceThemeChange}
             onApplyTheme={onApplySourceTheme}
             onSaveTheme={onSaveSourceTheme}
@@ -2507,6 +2578,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             pageLabel={getSourcePageLabel(activeSegment)}
             highlights={highlights}
             knowledgeCards={knowledgeCards}
+            pdfAnnotations={activeSegment.pdfAnnotations || []}
             onModeChange={onRightPaneModeChange}
             onHoverNoteSource={onHoverNoteSource}
             onThemeChange={onTranslationThemeChange}
@@ -2526,13 +2598,13 @@ const ReaderView: React.FC<ReaderViewProps> = ({
       </div>
     </main>
 
-    <footer className="border-t border-stone-300/70 bg-[#f2eadc]/95 px-4 py-3 backdrop-blur md:px-6">
+    <footer className="shrink-0 border-t border-zinc-300/70 bg-[#f5f5f7]/95 px-4 py-3 backdrop-blur md:px-6">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <button
             onClick={onPrevious}
             disabled={activeSegmentIndex === 0}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-stone-300 bg-[#fffdf8] text-stone-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 bg-[#ffffff] text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
             title={t('reader.previous')}
           >
             <ChevronLeft className="h-4 w-4" />
@@ -2540,7 +2612,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
           <button
             onClick={onNext}
             disabled={activeSegmentIndex === book.segments.length - 1}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-stone-300 bg-[#fffdf8] text-stone-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 bg-[#ffffff] text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
             title={t('reader.next')}
           >
             <ChevronRight className="h-4 w-4" />
@@ -2548,10 +2620,10 @@ const ReaderView: React.FC<ReaderViewProps> = ({
         </div>
 
         <div className="min-w-[180px] flex-1 md:max-w-md">
-          <div className="h-1.5 overflow-hidden rounded-full bg-stone-300">
-            <div className="h-full rounded-full bg-stone-950" style={{ width: `${progress}%` }} />
+          <div className="h-1.5 overflow-hidden rounded-full bg-zinc-300">
+            <div className="h-full rounded-full bg-[#007aff]" style={{ width: `${progress}%` }} />
           </div>
-          <p className="mt-1 text-center text-xs text-stone-500">
+          <p className="mt-1 text-center text-xs text-zinc-500">
             {activeSegmentIndex + 1} / {book.segments.length} · {progress}% translated
             {isTranslating && ` · LLM ${llmElapsedSeconds}s`}
           </p>
@@ -2560,7 +2632,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
         <button
           onClick={onTranslateNext}
           disabled={isTranslating}
-          className="flex h-9 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 hover:bg-white disabled:cursor-wait disabled:opacity-50"
+          className="flex h-9 items-center gap-2 rounded-md border border-zinc-300 bg-[#ffffff] px-3 text-sm font-medium text-zinc-800 hover:bg-white disabled:cursor-wait disabled:opacity-50"
         >
           {isTranslating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           {isTranslating ? `${llmElapsedSeconds}s` : t('reader.translateNext')}
@@ -2591,12 +2663,12 @@ const UploadCoverTile: React.FC<UploadCoverTileProps> = ({ isParsing, onFileUplo
   const { t } = useTranslation();
   return (
   <label className="group block cursor-pointer">
-    <div className="flex aspect-[2/3] flex-col items-center justify-center rounded-sm border border-dashed border-stone-500 bg-[#d8cab3] p-4 text-center shadow-[6px_8px_0_rgba(80,63,42,0.16)] transition group-hover:-translate-y-1 group-hover:bg-[#e4d7c0]">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#fffdf8] text-stone-700 shadow-sm">
+    <div className="flex aspect-[2/3] flex-col items-center justify-center rounded-md border border-dashed border-zinc-400 bg-[#f2f2f7] p-4 text-center shadow-[0_10px_28px_rgba(0,0,0,0.08)] transition group-hover:-translate-y-1 group-hover:bg-[#e5e5ea]">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#ffffff] text-zinc-700 shadow-sm">
         {isParsing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Upload className="h-6 w-6" />}
       </div>
-      <p className="mt-5 text-sm font-semibold text-stone-900">{t('books.add')}</p>
-      <p className="mt-2 max-w-24 text-xs leading-5 text-stone-600">PDF TXT EPUB</p>
+      <p className="mt-5 text-sm font-semibold text-zinc-900">{t('books.add')}</p>
+      <p className="mt-2 max-w-24 text-xs leading-5 text-zinc-600">PDF TXT EPUB</p>
     </div>
     <input
       type="file"
@@ -2647,7 +2719,7 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
         <button
           onClick={onOpenReader}
           disabled={!book}
-          className="relative flex aspect-[2/3] w-full flex-col justify-between overflow-hidden rounded-sm border border-stone-700 bg-stone-900 p-4 text-left text-[#fffdf8] shadow-[6px_8px_0_rgba(80,63,42,0.2)] transition hover:-translate-y-1 disabled:cursor-not-allowed disabled:opacity-50"
+          className="relative flex aspect-[2/3] w-full flex-col justify-between overflow-hidden rounded-md border border-zinc-700 bg-zinc-900 p-4 text-left text-[#ffffff] shadow-[0_14px_34px_rgba(0,0,0,0.16)] transition hover:-translate-y-1 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {book?.coverImageUrl ? (
             <>
@@ -2655,12 +2727,12 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
               <div className="absolute inset-0 bg-gradient-to-b from-black/65 via-black/20 to-black/80" />
             </>
           ) : (
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.16),transparent_30%),linear-gradient(150deg,#292524,#1c1917_58%,#57534e)]">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.14),transparent_30%),linear-gradient(150deg,#3a3a3c,#1c1c1e_58%,#48484a)]">
               <BookOpen className="absolute bottom-14 right-4 h-16 w-16 text-white/10" />
             </div>
           )}
           <div className="relative">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-300">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-300">
               {book?.fileType ? book.fileType.toUpperCase() : 'Empty'}
             </p>
             {!book?.coverImageUrl && (
@@ -2668,20 +2740,20 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
                 <h3 className="mt-5 max-h-32 overflow-hidden text-xl font-semibold leading-tight">
                   {displayTitle}
                 </h3>
-                {displaySubtitle && <p className="mt-2 max-h-12 overflow-hidden text-sm leading-5 text-stone-200">{displaySubtitle}</p>}
+                {displaySubtitle && <p className="mt-2 max-h-12 overflow-hidden text-sm leading-5 text-zinc-200">{displaySubtitle}</p>}
                 {book?.translatedTitle && book.subtitle && (
-                  <p className="mt-2 max-h-10 overflow-hidden text-xs leading-5 text-stone-300">{book.translatedTitle}</p>
+                  <p className="mt-2 max-h-10 overflow-hidden text-xs leading-5 text-zinc-300">{book.translatedTitle}</p>
                 )}
-                <p className="mt-3 max-h-10 overflow-hidden text-xs leading-5 text-stone-300">
+                <p className="mt-3 max-h-10 overflow-hidden text-xs leading-5 text-zinc-300">
                   {book?.author || book?.fileName || 'Source file'}
                 </p>
               </>
             )}
-            {!book?.coverImageUrl && facts && <p className="mt-2 truncate text-[11px] text-stone-400">{facts}</p>}
+            {!book?.coverImageUrl && facts && <p className="mt-2 truncate text-[11px] text-zinc-400">{facts}</p>}
             {!book?.coverImageUrl && book?.tags && book.tags.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1">
                 {book.tags.slice(0, 3).map((tag) => (
-                  <span key={tag} className="max-w-20 truncate rounded-sm bg-white/10 px-1.5 py-0.5 text-[10px] text-stone-200">
+                  <span key={tag} className="max-w-20 truncate rounded-sm bg-white/10 px-1.5 py-0.5 text-[10px] text-zinc-200">
                     {tag}
                   </span>
                 ))}
@@ -2690,9 +2762,9 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
           </div>
           <div className="relative">
             <div className="mb-2 h-1 overflow-hidden rounded-full bg-white/20">
-              <div className="h-full rounded-full bg-[#f2eadc]" style={{ width: `${progress}%` }} />
+              <div className="h-full rounded-full bg-[#0a84ff]" style={{ width: `${progress}%` }} />
             </div>
-            <p className="text-xs text-stone-300">
+            <p className="text-xs text-zinc-300">
               {book ? `${translatedCount}/${book.segments.length} translated` : 'No active book'}
             </p>
           </div>
@@ -2704,7 +2776,7 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
               onClick={() => setIsEditing(true)}
               title={t('books.edit')}
               aria-label={`Edit ${book.title}`}
-              className="flex h-8 w-8 items-center justify-center rounded-sm border border-white/15 bg-black/45 text-stone-100 shadow-sm transition hover:bg-stone-700 focus:outline-none focus:ring-2 focus:ring-white/60"
+              className="flex h-8 w-8 items-center justify-center rounded-sm border border-white/15 bg-black/45 text-zinc-100 shadow-sm transition hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-white/60"
             >
               <Pencil className="h-4 w-4" />
             </button>
@@ -2713,7 +2785,7 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
               onClick={onDeleteBook}
               title={t('books.delete')}
               aria-label={`Delete ${book.title}`}
-              className="flex h-8 w-8 items-center justify-center rounded-sm border border-white/15 bg-black/45 text-stone-100 shadow-sm transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-white/60"
+              className="flex h-8 w-8 items-center justify-center rounded-sm border border-white/15 bg-black/45 text-zinc-100 shadow-sm transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-white/60"
             >
               <Trash2 className="h-4 w-4" />
             </button>
@@ -2726,9 +2798,9 @@ const BookCoverTile: React.FC<BookCoverTileProps> = ({
             <button
               key={bookmark.id}
               onClick={() => onOpenBookmark(bookmark)}
-              className="flex w-full items-center gap-2 rounded px-1 py-1 text-left text-xs text-stone-700 hover:bg-[#fffdf8]"
+              className="flex w-full items-center gap-2 rounded px-1 py-1 text-left text-xs text-zinc-700 hover:bg-[#ffffff]"
             >
-              <BookmarkIcon className="h-3.5 w-3.5 fill-current text-amber-600" />
+              <BookmarkIcon className="h-3.5 w-3.5 fill-current text-yellow-600" />
               <span className="truncate">{bookmark.label}</span>
             </button>
           ))}
@@ -2763,13 +2835,13 @@ interface MetadataFieldProps {
 
 const MetadataField: React.FC<MetadataFieldProps> = ({ label, value, onChange, type = 'text', placeholder }) => (
   <label className="block">
-    <span className="text-xs font-medium text-stone-600">{label}</span>
+    <span className="text-xs font-medium text-zinc-600">{label}</span>
     <input
       type={type}
       value={value}
       placeholder={placeholder}
       onChange={(event) => onChange(event.target.value)}
-      className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+      className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-[#ffffff] px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
     />
   </label>
 );
@@ -2918,19 +2990,19 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-stone-950/45 p-4" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !isBusy && onClose()}>
-      <form onSubmit={submit} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-md border border-stone-300 bg-[#f5f1e8] p-5 shadow-2xl md:p-6" role="dialog" aria-modal="true" aria-labelledby="book-details-title">
-        <div className="flex items-start justify-between gap-4 border-b border-stone-300 pb-4">
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-zinc-950/45 p-4" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !isBusy && onClose()}>
+      <form onSubmit={submit} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-md border border-zinc-300 bg-[#f5f5f7] p-5 shadow-2xl md:p-6" role="dialog" aria-modal="true" aria-labelledby="book-details-title">
+        <div className="flex items-start justify-between gap-4 border-b border-zinc-300 pb-4">
           <div>
-            <p className="text-xs font-medium uppercase text-stone-500">{t('books.metadata')}</p>
-            <h2 id="book-details-title" className="mt-1 text-xl font-semibold text-stone-950">{t('books.details')}</h2>
+            <p className="text-xs font-medium uppercase text-zinc-500">{t('books.metadata')}</p>
+            <h2 id="book-details-title" className="mt-1 text-xl font-semibold text-zinc-950">{t('books.details')}</h2>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={autoDetect}
               disabled={isBusy}
-              className="flex h-9 items-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 hover:bg-white disabled:cursor-wait disabled:opacity-50"
+              className="flex h-9 items-center gap-2 rounded-md border border-zinc-300 bg-[#ffffff] px-3 text-sm font-medium text-zinc-800 hover:bg-white disabled:cursor-wait disabled:opacity-50"
             >
               {isDetecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               Auto-detect
@@ -2939,7 +3011,7 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
               type="button"
               onClick={onClose}
               disabled={isBusy}
-              className="flex h-9 w-9 items-center justify-center rounded-md text-stone-600 hover:bg-stone-200 disabled:opacity-50"
+              className="flex h-9 w-9 items-center justify-center rounded-md text-zinc-600 hover:bg-zinc-200 disabled:opacity-50"
               title={t('books.close')}
             >
               <X className="h-5 w-5" />
@@ -2949,19 +3021,19 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
 
         <div className="mt-5 grid gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
           <div className="md:row-span-4">
-            <div className="aspect-[2/3] overflow-hidden rounded-sm border border-stone-300 bg-stone-900">
+            <div className="aspect-[2/3] overflow-hidden rounded-sm border border-zinc-300 bg-zinc-900">
               {coverImageUrl ? (
                 <img src={coverImageUrl} alt="" className="h-full w-full object-cover" />
               ) : (
-                <div className="flex h-full w-full flex-col justify-between border border-dashed border-white/20 bg-stone-900 p-4 text-[#fffdf8]">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-300">{book.fileType.toUpperCase()}</p>
+                <div className="flex h-full w-full flex-col justify-between border border-dashed border-white/20 bg-zinc-900 p-4 text-[#ffffff]">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-300">{book.fileType.toUpperCase()}</p>
                   <div>
-                    <BookOpen className="mb-4 h-9 w-9 text-stone-400" />
-                    <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">{t('books.noCover')}</p>
+                    <BookOpen className="mb-4 h-9 w-9 text-zinc-400" />
+                    <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400">{t('books.noCover')}</p>
                     <p className="text-lg font-semibold leading-tight">{originalTitle || title}</p>
-                    {subtitle && <p className="mt-2 text-xs leading-5 text-stone-300">{subtitle}</p>}
+                    {subtitle && <p className="mt-2 text-xs leading-5 text-zinc-300">{subtitle}</p>}
                   </div>
-                  <p className="text-xs text-stone-400">{author || book.fileName}</p>
+                  <p className="text-xs text-zinc-400">{author || book.fileName}</p>
                 </div>
               )}
             </div>
@@ -2979,7 +3051,7 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
               type="button"
               onClick={() => coverInputRef.current?.click()}
               disabled={isBusy}
-              className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-md border border-stone-300 bg-[#fffdf8] px-3 text-sm font-medium text-stone-800 hover:bg-white disabled:cursor-wait disabled:opacity-50"
+              className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-md border border-zinc-300 bg-[#ffffff] px-3 text-sm font-medium text-zinc-800 hover:bg-white disabled:cursor-wait disabled:opacity-50"
             >
               <Upload className="h-4 w-4" />
               {coverImageUrl ? t('books.replaceCover') : t('books.uploadCover')}
@@ -3000,23 +3072,23 @@ const BookMetadataDialog: React.FC<BookMetadataDialogProps> = ({ book, onClose, 
             <MetadataField label={t('books.tags')} value={tags} onChange={setTags} placeholder={t('books.tagsPlaceholder')} />
           </div>
           <label className="block md:col-span-2">
-            <span className="text-xs font-medium text-stone-600">{t('books.description')}</span>
+            <span className="text-xs font-medium text-zinc-600">{t('books.description')}</span>
             <textarea
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              className="mt-1 min-h-28 w-full resize-y rounded-md border border-stone-300 bg-[#fffdf8] p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-stone-400"
+              className="mt-1 min-h-28 w-full resize-y rounded-md border border-zinc-300 bg-[#ffffff] p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-blue-400"
             />
           </label>
         </div>
 
-        {detectionStatus && <p className="mt-4 text-sm text-emerald-700">{detectionStatus}</p>}
+        {detectionStatus && <p className="mt-4 text-sm text-green-700">{detectionStatus}</p>}
         {validationError && <p className="mt-4 text-sm text-red-700">{validationError}</p>}
 
-        <div className="mt-6 flex justify-end gap-3 border-t border-stone-300 pt-4">
-          <button type="button" onClick={onClose} disabled={isBusy} className="h-10 rounded-md border border-stone-300 px-4 text-sm font-medium text-stone-700 hover:bg-white disabled:opacity-50">
+        <div className="mt-6 flex justify-end gap-3 border-t border-zinc-300 pt-4">
+          <button type="button" onClick={onClose} disabled={isBusy} className="h-10 rounded-md border border-zinc-300 px-4 text-sm font-medium text-zinc-700 hover:bg-white disabled:opacity-50">
             Cancel
           </button>
-          <button type="submit" disabled={isBusy} className="flex h-10 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-white hover:bg-stone-800 disabled:cursor-wait disabled:opacity-50">
+          <button type="submit" disabled={isBusy} className="flex h-10 items-center gap-2 rounded-md bg-[#007aff] px-4 text-sm font-medium text-white hover:bg-[#0066cc] disabled:cursor-wait disabled:opacity-50">
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
             Save
           </button>
@@ -3041,11 +3113,17 @@ interface BookPageProps {
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
   annotations: AnnotationCard[];
+  pdfAnnotations?: EmbeddedPdfAnnotation[];
   hoverHighlightText?: string;
   onAddHighlight: (selectedText?: string) => void;
   onCreateKnowledgeCard: () => void;
   onDefineSelection: (selectedText: string) => void;
   isDefiningSelection: boolean;
+  showHighlights: boolean;
+  onShowHighlightsChange: (show: boolean) => void;
+  showKnowledgeCards: boolean;
+  onShowKnowledgeCardsChange: (show: boolean) => void;
+  isFormatOpen: boolean;
   onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
   onApplyTheme: (themeId: string) => void;
   onSaveTheme: () => void;
@@ -3067,6 +3145,45 @@ const buildReaderMarks = (highlights: Highlight[], knowledgeCards: KnowledgeCard
   ...knowledgeCards.map((card) => ({ id: card.id, text: card.excerpt, kind: 'knowledge' as const })),
 ];
 
+const PDF_ANNOTATION_LABELS: Record<EmbeddedPdfAnnotation['kind'], string> = {
+  highlight: 'Imported highlight',
+  note: 'Imported note',
+  freeText: 'Imported text note',
+  underline: 'Imported underline',
+  squiggly: 'Imported squiggly',
+  strikeout: 'Imported strikeout',
+  ink: 'Imported ink mark',
+  other: 'Imported PDF annotation',
+};
+
+const getPdfAnnotationAnchorText = (annotation: EmbeddedPdfAnnotation) =>
+  annotation.text.split(/\r?\n/).map((line) => line.trim()).find((line) => line.length >= 2) || annotation.text.trim();
+
+const buildPdfAnnotationCards = (annotations: EmbeddedPdfAnnotation[]): AnnotationCard[] =>
+  annotations
+    .filter((annotation) => annotation.text && annotation.note)
+    .map((annotation) => ({
+      id: `pdf-${annotation.id}`,
+      sourceText: getPdfAnnotationAnchorText(annotation),
+      title: PDF_ANNOTATION_LABELS[annotation.kind],
+      body: [
+        annotation.text && annotation.text !== getPdfAnnotationAnchorText(annotation) ? annotation.text : '',
+        annotation.note,
+        annotation.author ? `By ${annotation.author}` : '',
+        annotation.modifiedAt ? `Modified ${annotation.modifiedAt}` : '',
+      ].filter(Boolean).join('\n'),
+      kind: annotation.kind === 'highlight' || annotation.kind === 'underline' ? 'term' : 'context',
+    }));
+
+const buildPdfAnnotationMarks = (annotations: EmbeddedPdfAnnotation[]): ReaderMark[] =>
+  annotations
+    .filter((annotation) => annotation.text)
+    .map((annotation) => ({
+      id: `pdf-mark-${annotation.id}`,
+      text: annotation.text,
+      kind: annotation.kind === 'highlight' || annotation.kind === 'underline' ? 'highlight' : 'knowledge',
+    }));
+
 const getReaderMarkPhrases = (mark: ReaderMark) =>
   Array.from(new Set([mark.text.trim(), ...mark.text.split(/\r?\n/).map((line) => line.trim())]))
     .filter((phrase) => phrase.length >= 2)
@@ -3080,10 +3197,10 @@ const ANNOTATION_KIND_LABELS: Record<LlmAnnotation['kind'], string> = {
 };
 
 const ANNOTATION_KIND_STYLES: Record<LlmAnnotation['kind'], string> = {
-  term: 'bg-amber-100 text-amber-900',
-  context: 'bg-teal-100 text-teal-900',
-  translation: 'bg-sky-100 text-sky-900',
-  reflection: 'bg-rose-100 text-rose-900',
+  term: 'bg-yellow-100 text-yellow-900',
+  context: 'bg-cyan-50 text-cyan-900',
+  translation: 'bg-blue-50 text-blue-900',
+  reflection: 'bg-purple-50 text-purple-900',
 };
 
 interface AnnotationCardContentProps {
@@ -3095,19 +3212,19 @@ const AnnotationCardContent: React.FC<AnnotationCardContentProps> = ({ annotatio
   <>
     <div className="flex items-start justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2">
-        <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-stone-900 px-1 text-[10px] font-semibold text-white">
+        <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-zinc-900 px-1 text-[10px] font-semibold text-white">
           {index + 1}
         </span>
-        <h3 className="text-sm font-semibold leading-5 text-stone-900">{annotation.sourceText}</h3>
+        <h3 className="text-sm font-semibold leading-5 text-zinc-900">{annotation.sourceText}</h3>
       </div>
       <span className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${ANNOTATION_KIND_STYLES[annotation.kind]}`}>
         {ANNOTATION_KIND_LABELS[annotation.kind]}
       </span>
     </div>
-    <div className="mt-3 border-l-2 border-amber-400 pl-3 font-serif text-sm italic leading-5 text-stone-700">
+    <div className="mt-3 border-l-2 border-yellow-400 pl-3 font-serif text-sm italic leading-5 text-zinc-700">
       {annotation.title}
     </div>
-    <p className="mt-3 text-sm leading-6 text-stone-700">{annotation.body}</p>
+    <p className="mt-3 text-sm leading-6 text-zinc-700">{annotation.body}</p>
   </>
 );
 
@@ -3167,18 +3284,18 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({ containerRef, onHig
 
   return createPortal(
     <div
-      className="fixed z-[100] flex -translate-x-1/2 -translate-y-full items-center overflow-hidden rounded-lg border border-stone-700 bg-stone-950 text-white shadow-xl"
+      className="fixed z-[100] flex -translate-x-1/2 -translate-y-full items-center overflow-hidden rounded-lg border border-zinc-700 bg-[#007aff] text-white shadow-xl"
       style={{ left: selection.left, top: selection.top }}
       role="toolbar"
       onMouseDown={(event) => event.preventDefault()}
     >
-      <button type="button" onClick={() => act(onHighlight)} className="flex h-9 items-center gap-1.5 px-3 text-xs font-medium hover:bg-stone-800">
-        <Highlighter className="h-3.5 w-3.5 text-amber-300" />
+      <button type="button" onClick={() => act(onHighlight)} className="flex h-9 items-center gap-1.5 px-3 text-xs font-medium hover:bg-[#0066cc]">
+        <Highlighter className="h-3.5 w-3.5 text-yellow-300" />
         {t('selection.highlight')}
       </button>
-      <span className="h-5 w-px bg-stone-700" />
-      <button type="button" disabled={isDefining} onClick={() => act(onDefine)} className="flex h-9 items-center gap-1.5 px-3 text-xs font-medium hover:bg-stone-800 disabled:opacity-50">
-        {isDefining ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-sky-300" />}
+      <span className="h-5 w-px bg-zinc-700" />
+      <button type="button" disabled={isDefining} onClick={() => act(onDefine)} className="flex h-9 items-center gap-1.5 px-3 text-xs font-medium hover:bg-[#0066cc] disabled:opacity-50">
+        {isDefining ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-blue-300" />}
         {t(isDefining ? 'selection.defining' : 'selection.define')}
       </button>
     </div>,
@@ -3200,11 +3317,17 @@ const BookPage: React.FC<BookPageProps> = ({
   highlights,
   knowledgeCards,
   annotations,
+  pdfAnnotations = [],
   hoverHighlightText = '',
   onAddHighlight,
   onCreateKnowledgeCard,
   onDefineSelection,
   isDefiningSelection,
+  showHighlights,
+  onShowHighlightsChange,
+  showKnowledgeCards,
+  onShowKnowledgeCardsChange,
+  isFormatOpen,
   onThemeChange,
   onApplyTheme,
   onSaveTheme,
@@ -3212,30 +3335,14 @@ const BookPage: React.FC<BookPageProps> = ({
 }) => {
   const { t } = useTranslation();
   const pageRef = useRef<HTMLElement>(null);
-  const [isFormatOpen, setIsFormatOpen] = useState(false);
-  const [showHighlights, setShowHighlights] = useState(true);
-  const [showKnowledgeCards, setShowKnowledgeCards] = useState(true);
-  const canFormatText = Boolean(readingTheme && !pdfUrl);
   const visibleMarks = buildReaderMarks(
     showHighlights ? highlights : [],
     showKnowledgeCards ? knowledgeCards : [],
   );
-  const handleHighlightClick = () => {
-    if (getSelectedReaderText()) {
-      onAddHighlight();
-      setShowHighlights(true);
-      return;
-    }
-    setShowHighlights((current) => !current);
-  };
-  const handleKnowledgeCardClick = () => {
-    if (getSelectedReaderText()) {
-      onCreateKnowledgeCard();
-      setShowKnowledgeCards(true);
-      return;
-    }
-    setShowKnowledgeCards((current) => !current);
-  };
+  const pdfAnnotationCards = useMemo(() => buildPdfAnnotationCards(pdfAnnotations), [pdfAnnotations]);
+  const pdfAnnotationMarks = useMemo(() => buildPdfAnnotationMarks(pdfAnnotations), [pdfAnnotations]);
+  const visiblePdfMarks = showHighlights || showKnowledgeCards ? pdfAnnotationMarks : [];
+  const visiblePdfAnnotationCards = showKnowledgeCards ? pdfAnnotationCards : [];
   const sectionStyle = readingTheme
     ? {
         color: getSubduedTextColor(readingTheme),
@@ -3246,57 +3353,32 @@ const BookPage: React.FC<BookPageProps> = ({
 
   return (
   <article ref={pageRef}
-    className="relative flex min-h-[680px] flex-col rounded-sm border border-stone-300 px-7 py-6 shadow-[0_18px_60px_rgba(68,54,34,0.13)] md:px-10"
-    style={readingTheme ? { backgroundColor: readingTheme.background, color: readingTheme.textColor } : { backgroundColor: '#fffdf8' }}
+    className="relative flex min-h-0 flex-col overflow-hidden rounded-sm border border-zinc-300 px-7 py-6 shadow-[0_18px_50px_rgba(0,0,0,0.08)] md:px-10"
+    style={readingTheme ? { backgroundColor: readingTheme.background, color: readingTheme.textColor } : { backgroundColor: '#ffffff' }}
   >
     <SelectionToolbar
       containerRef={pageRef}
-      onHighlight={(text) => { onAddHighlight(text); setShowHighlights(true); }}
-      onDefine={(text) => { onDefineSelection(text); setShowKnowledgeCards(true); }}
+      onHighlight={(text) => { onAddHighlight(text); onShowHighlightsChange(true); }}
+      onDefine={(text) => { onDefineSelection(text); onShowKnowledgeCardsChange(true); }}
       isDefining={isDefiningSelection}
     />
     <div
-      className="-mx-3 mb-8 flex flex-wrap items-center justify-between gap-3 border-b border-stone-300 bg-stone-50/80 px-3 pb-4 pt-1 text-stone-500 md:-mx-5 md:px-5"
+      className="-mx-3 mb-8 flex flex-wrap items-center justify-between gap-3 border-b border-zinc-300 bg-zinc-50/80 px-3 pb-4 pt-1 text-zinc-500 md:-mx-5 md:px-5"
       style={sectionStyle}
     >
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">{eyebrow}</p>
-        <h2 className="mt-1 text-sm font-medium text-stone-600">{title}</h2>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">{eyebrow}</p>
+        <h2 className="mt-1 text-sm font-medium text-zinc-600">{title}</h2>
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <button
-          onClick={handleHighlightClick}
-          className={`flex h-8 w-8 items-center justify-center rounded-md border ${showHighlights ? 'border-amber-400 bg-amber-100 text-amber-800' : 'border-stone-300 text-stone-400 hover:bg-stone-100'}`}
-          title={t(showHighlights ? 'reader.hideHighlights' : 'reader.showHighlights')}
-          aria-pressed={showHighlights}
-        >
-          <Highlighter className="h-4 w-4" />
-        </button>
-        <button
-          onClick={handleKnowledgeCardClick}
-          className={`flex h-8 w-8 items-center justify-center rounded-md border ${showKnowledgeCards ? 'border-sky-400 bg-sky-100 text-sky-800' : 'border-stone-300 text-stone-400 hover:bg-stone-100'}`}
-          title={t(showKnowledgeCards ? 'reader.hideCards' : 'reader.showCards')}
-          aria-pressed={showKnowledgeCards}
-        >
-          <FileText className="h-4 w-4" />
-        </button>
-        {canFormatText && (
-          <button
-            onClick={() => setIsFormatOpen((current) => !current)}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
-            title={t('reader.tuneOriginal')}
-          >
-            <BookOpen className="h-4 w-4" />
-          </button>
-        )}
-        <span className="text-xs text-stone-400">{pageLabel}</span>
+      <div className="flex items-center justify-end">
+        <span className="text-xs text-zinc-400">{pageLabel}</span>
       </div>
     </div>
 
     {pdfUrl ? (
-      <div className="flex-1 overflow-auto rounded-sm border border-stone-200 bg-stone-100 p-3">
+      <div className="min-h-0 flex-1 overflow-auto rounded-sm border border-zinc-200 bg-zinc-100 p-3">
         {hoverHighlightText && (
-          <div className="mb-3 rounded-sm border border-amber-300 bg-amber-100 px-3 py-2 text-sm leading-6 text-amber-950 shadow-sm">
+          <div className="mb-3 rounded-sm border border-orange-300 bg-yellow-100 px-3 py-2 text-sm leading-6 text-orange-950 shadow-sm">
             {hoverHighlightText}
           </div>
         )}
@@ -3304,12 +3386,12 @@ const BookPage: React.FC<BookPageProps> = ({
           source={pdfData || pdfUrl}
           pageNumber={pdfPage || 1}
           highlightText={hoverHighlightText}
-          annotations={annotations}
-          marks={visibleMarks}
+          annotations={[...annotations, ...visiblePdfAnnotationCards]}
+          marks={[...visibleMarks, ...visiblePdfMarks]}
         />
       </div>
     ) : (
-      <>
+      <div className="min-h-0 flex-1 overflow-auto pr-2">
         <FormattedReadingText
           text={body}
           muted={muted}
@@ -3329,24 +3411,24 @@ const BookPage: React.FC<BookPageProps> = ({
             onSaveTheme={onSaveTheme}
           />
         )}
-      </>
+      </div>
     )}
 
     <div
-      className="-mx-3 mt-8 min-h-24 border-t border-stone-300 bg-stone-50/70 px-3 pt-5 text-stone-500 md:-mx-5 md:px-5"
+      className="-mx-3 mt-5 max-h-28 shrink-0 overflow-auto border-t border-zinc-300 bg-zinc-50/70 px-3 pt-5 text-zinc-500 md:-mx-5 md:px-5"
       style={sectionStyle}
     >
       {footnotes.length ? (
-        <ol className="space-y-2 text-xs leading-5 text-stone-600">
+        <ol className="space-y-2 text-xs leading-5 text-zinc-600">
           {footnotes.map((note, index) => (
             <li key={`${note}-${index}`} className="grid grid-cols-[24px_1fr] gap-2">
-              <span className="text-stone-400">{index + 1}</span>
+              <span className="text-zinc-400">{index + 1}</span>
               <span>{note}</span>
             </li>
           ))}
         </ol>
       ) : (
-        <p className="text-xs italic text-stone-400">
+        <p className="text-xs italic text-zinc-400">
           {pdfUrl ? 'Original notes remain visible in the PDF page above.' : 'No footnotes on this page.'}
         </p>
       )}
@@ -3367,6 +3449,7 @@ interface RightReaderPaneProps {
   pageLabel: string;
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
+  pdfAnnotations: EmbeddedPdfAnnotation[];
   onModeChange: (mode: RightPaneMode) => void;
   onHoverNoteSource: (text: string) => void;
   onThemeChange: <K extends keyof ReadingTheme>(key: K, value: ReadingTheme[K]) => void;
@@ -3395,6 +3478,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   pageLabel,
   highlights,
   knowledgeCards,
+  pdfAnnotations,
   onModeChange,
   onHoverNoteSource,
   onThemeChange,
@@ -3442,8 +3526,8 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
 
   return (
     <article ref={pageRef}
-      className="relative flex min-h-[680px] flex-col rounded-sm border border-stone-300 px-7 py-6 shadow-[0_18px_60px_rgba(68,54,34,0.13)] md:px-10"
-      style={mode === 'translation' ? { backgroundColor: readingTheme.background, color: readingTheme.textColor } : { backgroundColor: '#fffdf8' }}
+      className="relative flex min-h-0 flex-col overflow-hidden rounded-sm border border-zinc-300 px-7 py-6 shadow-[0_18px_50px_rgba(0,0,0,0.08)] md:px-10"
+      style={mode === 'translation' ? { backgroundColor: readingTheme.background, color: readingTheme.textColor } : { backgroundColor: '#ffffff' }}
     >
     <SelectionToolbar
       containerRef={pageRef}
@@ -3451,12 +3535,12 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
       onDefine={(text) => { onDefineSelection(text); setShowKnowledgeCards(true); }}
       isDefining={isDefiningSelection}
     />
-    <div className="mb-6 flex items-center justify-between gap-3 border-b border-stone-200 pb-4">
+    <div className="mb-6 flex items-center justify-between gap-3 border-b border-zinc-200 pb-4">
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
           {mode === 'translation' ? t('reader.translation', { language: motherLanguage }) : t('reader.guide')}
         </p>
-        <h2 className="mt-1 text-sm font-medium text-stone-700">
+        <h2 className="mt-1 text-sm font-medium text-zinc-700">
           {mode === 'translation'
             ? activeTranslation
               ? t('reader.generatedTranslation')
@@ -3465,13 +3549,13 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
         </h2>
       </div>
       <div className="flex items-center gap-2">
-        <div className="flex rounded-md border border-stone-300 bg-[#f7f3ea] p-1">
+        <div className="flex rounded-md border border-zinc-300 bg-[#f2f2f7] p-1">
           {(['translation', 'guide'] as const).map((item) => (
             <button
               key={item}
               onClick={() => onModeChange(item)}
               className={`h-7 rounded px-2 text-xs font-medium capitalize ${
-                mode === item ? 'bg-stone-950 text-white' : 'text-stone-600 hover:bg-stone-200'
+                mode === item ? 'bg-[#007aff] text-white' : 'text-zinc-600 hover:bg-zinc-200'
               }`}
             >
               {item === 'guide' ? t('reader.guide') : t('reader.translationTab')}
@@ -3482,7 +3566,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
           <>
             <button
               onClick={handleHighlightClick}
-              className={`flex h-8 w-8 items-center justify-center rounded-md border ${showHighlights ? 'border-amber-400 bg-amber-100 text-amber-800' : 'border-stone-300 text-stone-400 hover:bg-stone-100'}`}
+              className={`flex h-8 w-8 items-center justify-center rounded-md border ${showHighlights ? 'border-yellow-400 bg-yellow-100 text-yellow-800' : 'border-zinc-300 text-zinc-400 hover:bg-zinc-100'}`}
               title={t(showHighlights ? 'reader.hideHighlights' : 'reader.showHighlights')}
               aria-pressed={showHighlights}
             >
@@ -3490,7 +3574,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
             </button>
             <button
               onClick={handleKnowledgeCardClick}
-              className={`flex h-8 w-8 items-center justify-center rounded-md border ${showKnowledgeCards ? 'border-sky-400 bg-sky-100 text-sky-800' : 'border-stone-300 text-stone-400 hover:bg-stone-100'}`}
+              className={`flex h-8 w-8 items-center justify-center rounded-md border ${showKnowledgeCards ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-zinc-300 text-zinc-400 hover:bg-zinc-100'}`}
               title={t(showKnowledgeCards ? 'reader.hideCards' : 'reader.showCards')}
               aria-pressed={showKnowledgeCards}
             >
@@ -3498,19 +3582,19 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
             </button>
             <button
               onClick={() => setIsFormatOpen((current) => !current)}
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-stone-600 hover:bg-stone-100"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-100"
               title={t('reader.tuneTranslation')}
             >
               <BookOpen className="h-4 w-4" />
             </button>
           </>
         )}
-        <span className="text-xs text-stone-400">{pageLabel}</span>
+        <span className="text-xs text-zinc-400">{pageLabel}</span>
       </div>
     </div>
 
     {mode === 'translation' ? (
-      <>
+      <div className="min-h-0 flex-1 overflow-auto pr-2">
         <FormattedReadingText
           text={activeTranslation?.translatedText || t('reader.useTranslate')}
           layout={activeTranslation?.layout}
@@ -3531,18 +3615,21 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
             onSaveTheme={onSaveTheme}
           />
         )}
-      </>
+      </div>
     ) : (
-      <GuideView
-        activeTranslation={activeTranslation}
-        highlights={highlights}
-        knowledgeCards={knowledgeCards}
-        noteResponse={note?.llmResponse || ''}
-        noteAnchors={noteAnchors}
-        onHoverNoteSource={onHoverNoteSource}
-        onDeleteHighlight={onDeleteHighlight}
-        onDeleteKnowledgeCard={onDeleteKnowledgeCard}
-      />
+      <div className="min-h-0 flex-1 overflow-auto pr-2">
+        <GuideView
+          activeTranslation={activeTranslation}
+          highlights={highlights}
+          knowledgeCards={knowledgeCards}
+          pdfAnnotations={pdfAnnotations}
+          noteResponse={note?.llmResponse || ''}
+          noteAnchors={noteAnchors}
+          onHoverNoteSource={onHoverNoteSource}
+          onDeleteHighlight={onDeleteHighlight}
+          onDeleteKnowledgeCard={onDeleteKnowledgeCard}
+        />
+      </div>
     )}
     </article>
   );
@@ -3586,33 +3673,33 @@ const ReadingAgentPanel: React.FC<ReadingAgentPanelProps> = ({
         <button
           type="button"
           aria-label={t('genie.close')}
-          className="fixed inset-0 z-30 bg-stone-950/20 backdrop-blur-[1px]"
+          className="fixed inset-0 z-30 bg-zinc-950/20 backdrop-blur-[1px]"
           onClick={() => onOpenChange(false)}
         />
       )}
 
       <aside
         aria-label={t('genie.name')}
-        className={`fixed inset-y-0 right-0 z-40 flex w-full max-w-[420px] flex-col border-l border-stone-300 bg-[#fffdf8] shadow-[-24px_0_70px_rgba(68,54,34,0.2)] transition-transform duration-300 ${
+        className={`fixed inset-y-0 right-0 z-40 flex w-full max-w-[420px] flex-col border-l border-zinc-300 bg-[#ffffff] shadow-[-24px_0_70px_rgba(0,0,0,0.12)] transition-transform duration-300 ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        <div className="border-b border-stone-200 bg-[#f2eadc] px-5 pb-4 pt-5">
+        <div className="border-b border-zinc-200 bg-[#f5f5f7] px-5 pb-4 pt-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex gap-3">
-              <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-[45%_55%_50%_50%] bg-stone-950 text-amber-200 shadow-md">
+              <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-[45%_55%_50%_50%] bg-[#007aff] text-yellow-100 shadow-md">
                 <Sparkles className="h-5 w-5" />
-                <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-[#f2eadc]" />
+                <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-yellow-400 ring-2 ring-[#f5f5f7]" />
               </div>
               <div>
-                <p className="font-serif text-lg font-semibold text-stone-900">{t('genie.name')}</p>
-                <p className="text-xs text-stone-500">{t('genie.companion', { passage: passageLabel })}</p>
+                <p className="font-serif text-lg font-semibold text-zinc-900">{t('genie.name')}</p>
+                <p className="text-xs text-zinc-500">{t('genie.companion', { passage: passageLabel })}</p>
               </div>
             </div>
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-stone-500 hover:bg-stone-200"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-200"
               title={t('genie.close')}
             >
               <X className="h-4 w-4" />
@@ -3623,8 +3710,8 @@ const ReadingAgentPanel: React.FC<ReadingAgentPanelProps> = ({
         <div className="flex-1 overflow-y-auto px-5 py-5">
           {!messages.length ? (
             <div className="flex min-h-full flex-col justify-center">
-              <p className="font-serif text-2xl leading-8 text-stone-800">{t('genie.question')}</p>
-              <p className="mt-2 text-sm leading-6 text-stone-500">
+              <p className="font-serif text-2xl leading-8 text-zinc-800">{t('genie.question')}</p>
+              <p className="mt-2 text-sm leading-6 text-zinc-500">
                 {t('genie.description')}
               </p>
               <div className="mt-6 grid gap-2">
@@ -3633,7 +3720,7 @@ const ReadingAgentPanel: React.FC<ReadingAgentPanelProps> = ({
                     key={starter}
                     type="button"
                     onClick={() => send(starter)}
-                    className="rounded-lg border border-stone-300 bg-white px-4 py-3 text-left text-sm text-stone-700 transition hover:-translate-y-0.5 hover:border-stone-500 hover:shadow-sm"
+                    className="rounded-lg border border-zinc-300 bg-white px-4 py-3 text-left text-sm text-zinc-700 transition hover:-translate-y-0.5 hover:border-zinc-500 hover:shadow-sm"
                   >
                     {starter}
                   </button>
@@ -3647,8 +3734,8 @@ const ReadingAgentPanel: React.FC<ReadingAgentPanelProps> = ({
                   <div
                     className={`max-w-[88%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 ${
                       message.role === 'user'
-                        ? 'rounded-br-sm bg-stone-900 text-[#fffdf8]'
-                        : 'rounded-bl-sm border border-stone-200 bg-[#f2eadc] text-stone-800'
+                        ? 'rounded-br-sm bg-[#007aff] text-[#ffffff]'
+                        : 'rounded-bl-sm border border-zinc-200 bg-[#f5f5f7] text-zinc-800'
                     }`}
                   >
                     {message.content}
@@ -3656,7 +3743,7 @@ const ReadingAgentPanel: React.FC<ReadingAgentPanelProps> = ({
                 </div>
               ))}
               {isResponding && (
-                <div className="flex items-center gap-2 text-xs text-stone-500">
+                <div className="flex items-center gap-2 text-xs text-zinc-500">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   {t('genie.thinking')}
                 </div>
@@ -3666,8 +3753,8 @@ const ReadingAgentPanel: React.FC<ReadingAgentPanelProps> = ({
           )}
         </div>
 
-        <div className="border-t border-stone-200 bg-white p-4">
-          <div className="flex items-end gap-2 rounded-xl border border-stone-300 bg-[#fffdf8] p-2 focus-within:border-stone-500 focus-within:ring-2 focus-within:ring-stone-200">
+        <div className="border-t border-zinc-200 bg-white p-4">
+          <div className="flex items-end gap-2 rounded-xl border border-zinc-300 bg-[#ffffff] p-2 focus-within:border-zinc-500 focus-within:ring-2 focus-within:ring-blue-500/20">
             <textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
@@ -3679,19 +3766,19 @@ const ReadingAgentPanel: React.FC<ReadingAgentPanelProps> = ({
               }}
               rows={2}
               placeholder={t('genie.placeholder')}
-              className="max-h-32 min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-5 outline-none placeholder:text-stone-400"
+              className="max-h-32 min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-5 outline-none placeholder:text-zinc-400"
             />
             <button
               type="button"
               onClick={() => send()}
               disabled={!draft.trim() || isResponding}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-stone-950 text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-35"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#007aff] text-white hover:bg-[#0066cc] disabled:cursor-not-allowed disabled:opacity-35"
               title={t('genie.send')}
             >
               {isResponding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </button>
           </div>
-          <p className="mt-2 text-center text-[10px] text-stone-400">{t('genie.inputHint')}</p>
+          <p className="mt-2 text-center text-[10px] text-zinc-400">{t('genie.inputHint')}</p>
         </div>
       </aside>
 
@@ -3699,12 +3786,12 @@ const ReadingAgentPanel: React.FC<ReadingAgentPanelProps> = ({
         <button
           type="button"
           onClick={() => onOpenChange(true)}
-          className="group fixed bottom-20 right-5 z-30 flex items-center gap-2 rounded-full border border-stone-700 bg-stone-950 py-2.5 pl-3 pr-4 text-[#fffdf8] shadow-[0_12px_35px_rgba(28,25,23,0.3)] transition hover:-translate-y-1 hover:bg-stone-800 md:bottom-6 md:right-7"
+          className="group fixed bottom-20 right-5 z-30 flex items-center gap-2 rounded-full border border-zinc-700 bg-[#007aff] py-2.5 pl-3 pr-4 text-[#ffffff] shadow-[0_12px_35px_rgba(0,122,255,0.24)] transition hover:-translate-y-1 hover:bg-[#0066cc] md:bottom-6 md:right-7"
           title={t('genie.call')}
         >
-          <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-amber-200 text-stone-950">
+          <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-yellow-100 text-zinc-950">
             <MessageCircle className="h-4 w-4" />
-            <Sparkles className="absolute -right-1 -top-1 h-3 w-3 text-amber-300 drop-shadow-[0_0_3px_rgba(253,230,138,0.9)]" />
+            <Sparkles className="absolute -right-1 -top-1 h-3 w-3 text-yellow-300 drop-shadow-[0_0_3px_rgba(253,230,138,0.9)]" />
           </span>
           <span className="text-sm font-medium">{t('genie.ask')}</span>
         </button>
@@ -3717,6 +3804,7 @@ interface GuideViewProps {
   activeTranslation: TranslatedSegment | null;
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
+  pdfAnnotations: EmbeddedPdfAnnotation[];
   noteResponse: string;
   noteAnchors: HoverAnchor[];
   onHoverNoteSource: (text: string) => void;
@@ -3728,6 +3816,7 @@ const GuideView: React.FC<GuideViewProps> = ({
   activeTranslation,
   highlights,
   knowledgeCards,
+  pdfAnnotations,
   noteResponse,
   noteAnchors,
   onHoverNoteSource,
@@ -3737,30 +3826,30 @@ const GuideView: React.FC<GuideViewProps> = ({
   const { t } = useTranslation();
 
   return (
-  <div className="flex-1 overflow-y-auto">
+  <div>
     <div className="space-y-5">
       <section>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">{t('guide.pageRemark')}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{t('guide.pageRemark')}</p>
         {activeTranslation ? (
-          <div className="mt-3 rounded-sm border border-stone-200 bg-white p-4 font-serif text-base leading-7 text-stone-700 shadow-sm">
+          <div className="mt-3 rounded-sm border border-zinc-200 bg-white p-4 font-serif text-base leading-7 text-zinc-700 shadow-sm">
             {activeTranslation.pageGuide || activeTranslation.commentary || t('guide.noPageGuide')}
           </div>
         ) : (
-          <p className="mt-3 text-sm italic text-stone-400">{t('guide.translateForGuide')}</p>
+          <p className="mt-3 text-sm italic text-zinc-400">{t('guide.translateForGuide')}</p>
         )}
       </section>
 
-      <section className="border-t border-stone-200 pt-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">{t('guide.highlights')}</p>
+      <section className="border-t border-zinc-200 pt-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{t('guide.highlights')}</p>
         {highlights.length > 0 ? (
           <div className="mt-3 space-y-2">
             {highlights.map((highlight) => (
-              <div key={highlight.id} className="flex items-start gap-2 rounded-sm bg-yellow-100 px-2 py-1 text-xs leading-5 text-stone-700">
+              <div key={highlight.id} className="flex items-start gap-2 rounded-sm bg-yellow-100 px-2 py-1 text-xs leading-5 text-zinc-700">
                 <p className="min-w-0 flex-1">{highlight.text}</p>
                 <button
                   type="button"
                   onClick={() => onDeleteHighlight(highlight.id)}
-                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-stone-400 hover:bg-yellow-200 hover:text-red-700"
+                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-yellow-200 hover:text-red-700"
                   title={t('guide.deleteHighlight')}
                   aria-label={t('guide.deleteHighlight')}
                 >
@@ -3770,24 +3859,24 @@ const GuideView: React.FC<GuideViewProps> = ({
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-sm italic text-stone-400">{t('guide.noHighlights')}</p>
+          <p className="mt-3 text-sm italic text-zinc-400">{t('guide.noHighlights')}</p>
         )}
       </section>
 
-      <section className="border-t border-stone-200 pt-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">{t('guide.knowledgeCards')}</p>
+      <section className="border-t border-zinc-200 pt-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{t('guide.knowledgeCards')}</p>
         {knowledgeCards.length > 0 ? (
           <div className="mt-3 space-y-2">
             {knowledgeCards.map((card) => (
-              <div key={card.id} className="flex items-start gap-2 rounded-sm border border-stone-200 bg-white px-3 py-2 text-xs leading-5 text-stone-700">
+              <div key={card.id} className="flex items-start gap-2 rounded-sm border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-700">
                 <div className="min-w-0 flex-1">
-                  <p className="font-serif font-semibold text-stone-800">{card.excerpt}</p>
-                  {card.explanation && <p className="mt-2 whitespace-pre-wrap border-t border-stone-100 pt-2 text-stone-600">{card.explanation}</p>}
+                  <p className="font-serif font-semibold text-zinc-800">{card.excerpt}</p>
+                  {card.explanation && <p className="mt-2 whitespace-pre-wrap border-t border-zinc-100 pt-2 text-zinc-600">{card.explanation}</p>}
                 </div>
                 <button
                   type="button"
                   onClick={() => onDeleteKnowledgeCard(card.id)}
-                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-stone-400 hover:bg-stone-100 hover:text-red-700"
+                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-red-700"
                   title={t('guide.deleteCard')}
                   aria-label={t('guide.deleteCard')}
                 >
@@ -3797,18 +3886,37 @@ const GuideView: React.FC<GuideViewProps> = ({
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-sm italic text-stone-400">{t('guide.noCards')}</p>
+          <p className="mt-3 text-sm italic text-zinc-400">{t('guide.noCards')}</p>
         )}
       </section>
 
-      <section className="border-t border-stone-200 pt-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">{t('guide.noteResponse')}</p>
+      {pdfAnnotations.length > 0 && (
+        <section className="border-t border-zinc-200 pt-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Imported PDF Notes</p>
+          <div className="mt-3 space-y-2">
+            {pdfAnnotations.map((annotation) => (
+              <div key={annotation.id} className="rounded-sm border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-700">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-zinc-800">{PDF_ANNOTATION_LABELS[annotation.kind]}</p>
+                  <span className="shrink-0 text-[10px] text-zinc-400">p. {annotation.pageNumber}</span>
+                </div>
+                {annotation.text && <p className="mt-2 rounded-sm bg-yellow-100 px-2 py-1 font-serif text-zinc-900">{annotation.text}</p>}
+                {annotation.note && <p className="mt-2 whitespace-pre-wrap text-zinc-600">{annotation.note}</p>}
+                {annotation.author && <p className="mt-2 text-[10px] text-zinc-400">{annotation.author}</p>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="border-t border-zinc-200 pt-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{t('guide.noteResponse')}</p>
         {noteResponse ? (
-          <div className="mt-3 rounded-sm border border-stone-300 bg-white p-4 text-sm leading-6 text-stone-700">
+          <div className="mt-3 rounded-sm border border-zinc-300 bg-white p-4 text-sm leading-6 text-zinc-700">
             <HoverableLlmResponse text={noteResponse} anchors={noteAnchors} onHoverSource={onHoverNoteSource} />
           </div>
         ) : (
-          <p className="mt-3 text-sm italic text-stone-400">{t('guide.noResponse')}</p>
+          <p className="mt-3 text-sm italic text-zinc-400">{t('guide.noResponse')}</p>
         )}
       </section>
     </div>
@@ -4256,8 +4364,8 @@ const PdfCanvasPage: React.FC<PdfCanvasPageProps> = ({ source, pageNumber, highl
   return (
     <div ref={wrapperRef} className="relative flex min-h-[520px] justify-center">
       {isRendering && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-stone-100/70">
-          <Loader2 className="h-6 w-6 animate-spin text-stone-500" />
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-100/70">
+          <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
         </div>
       )}
       {renderError ? (
@@ -4295,12 +4403,12 @@ interface SettingsFieldProps {
 
 const SettingsField: React.FC<SettingsFieldProps> = ({ label, value, onChange, type = 'text' }) => (
   <label className="mt-3 block">
-    <span className="text-xs font-medium text-stone-600">{label}</span>
+    <span className="text-xs font-medium text-zinc-600">{label}</span>
     <input
       value={value}
       onChange={(event) => onChange(event.target.value)}
       type={type}
-      className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+      className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-[#f9fafb] px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
     />
   </label>
 );
@@ -4316,7 +4424,7 @@ interface NumberSettingsFieldProps {
 
 const NumberSettingsField: React.FC<NumberSettingsFieldProps> = ({ label, value, onChange, min, max, step = 1 }) => (
   <label className="mt-3 block">
-    <span className="text-xs font-medium text-stone-600">{label}</span>
+    <span className="text-xs font-medium text-zinc-600">{label}</span>
     <input
       value={Number.isFinite(value) ? value : ''}
       onChange={(event) => onChange(Number(event.target.value))}
@@ -4324,7 +4432,7 @@ const NumberSettingsField: React.FC<NumberSettingsFieldProps> = ({ label, value,
       min={min}
       max={max}
       step={step}
-      className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-[#fbf8f1] px-3 text-sm outline-none focus:ring-2 focus:ring-stone-400"
+      className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-[#f9fafb] px-3 text-sm outline-none focus:ring-2 focus:ring-blue-400"
     />
   </label>
 );
@@ -4349,7 +4457,7 @@ const StatusMessage: React.FC<StatusMessageProps> = ({ statusMessage, errorMessa
   return (
     <div
       className={`${requiresSignIn ? 'fixed left-1/2 top-4 z-40 w-[min(520px,calc(100vw-32px))] -translate-x-1/2 shadow-xl' : compact ? 'mt-0' : 'mt-5'} flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${
-        errorMessage ? 'border-red-300 bg-red-50 text-red-800' : 'border-emerald-300 bg-emerald-50 text-emerald-800'
+        errorMessage ? 'border-red-300 bg-red-50 text-red-800' : 'border-green-300 bg-green-50 text-green-800'
       }`}
     >
       {errorMessage ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
@@ -4494,10 +4602,10 @@ const buildReadingLayoutLines = (text: string, sourceText?: string, formatPageFr
   });
 };
 
-const getSubduedTextColor = (theme?: ReadingTheme) => (theme?.id === 'night' ? '#a8a29e' : '#57534e');
-const getPageFrameTextColor = () => '#a8a29e';
-const getPageFrameSeparatorColor = (theme?: ReadingTheme) => (theme?.id === 'night' ? '#57534e' : '#d6d3d1');
-const getPageFrameBackground = (theme?: ReadingTheme) => (theme?.id === 'night' ? 'rgba(87, 83, 78, 0.18)' : 'rgba(245, 245, 244, 0.72)');
+const getSubduedTextColor = (theme?: ReadingTheme) => (theme?.id === 'night' ? '#aeaeb2' : '#6e6e73');
+const getPageFrameTextColor = () => '#8e8e93';
+const getPageFrameSeparatorColor = (theme?: ReadingTheme) => (theme?.id === 'night' ? '#48484a' : '#d2d2d7');
+const getPageFrameBackground = (theme?: ReadingTheme) => (theme?.id === 'night' ? 'rgba(72, 72, 74, 0.22)' : 'rgba(249, 250, 251, 0.82)');
 
 const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
   text,
@@ -4529,8 +4637,8 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
 
   return (
     <div
-      className={`flex-1 overflow-y-auto whitespace-pre-wrap text-[1.08rem] leading-8 md:text-[1.16rem] md:leading-9 ${fontClass} ${
-        muted ? 'text-stone-400' : 'text-stone-900'
+      className={`whitespace-pre-wrap text-[1.08rem] leading-8 md:text-[1.16rem] md:leading-9 ${fontClass} ${
+        muted ? 'text-zinc-400' : 'text-zinc-900'
       }`}
       style={textStyle}
     >
@@ -4558,7 +4666,7 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
             return (
               <div
                 key={`${line.text}-${index}`}
-                className="-mx-2 mb-6 border-b border-stone-300 bg-stone-100/70 px-2 pb-3 pt-1 text-center text-[0.74em] font-medium leading-5 text-stone-400"
+                className="-mx-2 mb-6 border-b border-zinc-300 bg-zinc-100/70 px-2 pb-3 pt-1 text-center text-[0.74em] font-medium leading-5 text-zinc-400"
                 style={
                   theme
                     ? {
@@ -4579,7 +4687,7 @@ const FormattedReadingText: React.FC<FormattedReadingTextProps> = ({
             return (
               <div
                 key={`${line.text}-${index}`}
-                className="-mx-2 mt-7 border-t border-stone-300 bg-stone-100/70 px-2 pb-1 pt-3 text-center text-[0.74em] leading-5 text-stone-400"
+                className="-mx-2 mt-7 border-t border-zinc-300 bg-zinc-100/70 px-2 pb-1 pt-3 text-center text-[0.74em] leading-5 text-zinc-400"
                 style={
                   theme
                     ? {
@@ -4631,7 +4739,7 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
   <>
     {layout.header?.trim() && (
       <div
-        className="-mx-2 mb-6 border-b border-stone-300 bg-stone-100/70 px-2 pb-3 pt-1 text-center text-[0.74em] font-medium leading-5 text-stone-400"
+        className="-mx-2 mb-6 border-b border-zinc-300 bg-zinc-100/70 px-2 pb-3 pt-1 text-center text-[0.74em] font-medium leading-5 text-zinc-400"
         style={
           theme
             ? {
@@ -4680,7 +4788,7 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
 
     {layout.notes && layout.notes.length > 0 && (
       <ol
-        className="mt-7 border-t border-stone-300 pt-3 text-[0.78em] leading-6 text-stone-600"
+        className="mt-7 border-t border-zinc-300 pt-3 text-[0.78em] leading-6 text-zinc-600"
         style={theme ? { color: getSubduedTextColor(theme), borderColor: getPageFrameSeparatorColor(theme) } : undefined}
       >
         {layout.notes.map((note, index) => (
@@ -4696,7 +4804,7 @@ const StructuredReadingLayout: React.FC<StructuredReadingLayoutProps> = ({ layou
 
     {layout.footer?.trim() && (
       <div
-        className="-mx-2 mt-7 border-t border-stone-300 bg-stone-100/70 px-2 pb-1 pt-3 text-center text-[0.74em] leading-5 text-stone-400"
+        className="-mx-2 mt-7 border-t border-zinc-300 bg-zinc-100/70 px-2 pb-1 pt-3 text-center text-[0.74em] leading-5 text-zinc-400"
         style={
           theme
             ? {
@@ -4788,7 +4896,7 @@ const FloatingAnnotationCard: React.FC<FloatingAnnotationCardProps> = ({ annotat
   createPortal(
     <aside
       role="tooltip"
-      className="pointer-events-none fixed z-[100] w-[min(18rem,calc(100vw-1.5rem))] rounded-md border border-stone-300 bg-[#fffdf8] p-4 text-left text-stone-900 shadow-2xl"
+      className="pointer-events-none fixed z-[100] w-[min(18rem,calc(100vw-1.5rem))] rounded-md border border-zinc-300 bg-[#ffffff] p-4 text-left text-zinc-900 shadow-2xl"
       style={{
         left: position.left,
         top: position.top,
@@ -4817,7 +4925,7 @@ const InlineAnnotationAnchor: React.FC<AnnotationCardContentProps & { text: Reac
       onMouseLeave={() => setPosition(null)}
       onFocus={openCard}
       onBlur={() => setPosition(null)}
-      className="cursor-help px-0.5 text-inherit underline decoration-2 decoration-stone-400 underline-offset-4 outline-none transition hover:decoration-stone-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400"
+      className="cursor-help px-0.5 text-inherit underline decoration-2 decoration-zinc-400 underline-offset-4 outline-none transition hover:decoration-zinc-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400"
     >
       {text}
       {position && <FloatingAnnotationCard annotation={annotation} index={index} position={position} />}
@@ -4841,7 +4949,7 @@ const renderHoverHighlightedText = (text: string, phrase: string) => {
   return (
     <>
       {text.slice(0, index)}
-      <mark className="rounded-sm bg-amber-200 px-0.5 text-stone-950 shadow-[0_0_0_2px_rgba(251,191,36,0.28)]">
+      <mark className="rounded-sm bg-yellow-100 px-0.5 text-zinc-950 shadow-[0_0_0_2px_rgba(251,191,36,0.28)]">
         {text.slice(index, index + normalizedPhrase.length)}
       </mark>
       {text.slice(index + normalizedPhrase.length)}
@@ -4880,7 +4988,7 @@ const renderReaderMarkedText = (text: string, marks: ReaderMark[], hoverPhrase: 
     parts.push(
       <mark
         key={`${next.mark.id}-${next.index}`}
-        className={next.mark.kind === 'highlight' ? 'rounded-sm bg-yellow-200 px-0.5 text-inherit' : 'rounded-sm bg-sky-200 px-0.5 text-inherit'}
+        className={next.mark.kind === 'highlight' ? 'rounded-sm bg-yellow-200 px-0.5 text-inherit' : 'rounded-sm bg-blue-100 px-0.5 text-inherit'}
       >
         {text.slice(next.index, end)}
       </mark>,
@@ -4932,15 +5040,15 @@ const ReadingThemePopover: React.FC<ReadingThemePopoverProps> = ({
   const { t } = useTranslation();
 
   return (
-  <div className="absolute right-6 top-20 z-30 w-80 rounded-md border border-stone-300 bg-[#fffdf8] p-4 text-stone-900 shadow-2xl">
+  <div className="absolute right-6 top-20 z-30 w-80 rounded-md border border-zinc-300 bg-[#ffffff] p-4 text-zinc-900 shadow-2xl">
     <div className="mb-4 flex items-center justify-between gap-3">
       <div>
         <p className="text-sm font-semibold">{title}</p>
-        <p className="text-xs text-stone-500">{description}</p>
+        <p className="text-xs text-zinc-500">{description}</p>
       </div>
       <button
         onClick={onSaveTheme}
-        className="flex h-8 items-center gap-1 rounded-md border border-stone-300 px-2 text-xs font-medium hover:bg-stone-100"
+        className="flex h-8 items-center gap-1 rounded-md border border-zinc-300 px-2 text-xs font-medium hover:bg-zinc-100"
       >
         <Plus className="h-3.5 w-3.5" />
         {t('format.save')}
@@ -4953,7 +5061,7 @@ const ReadingThemePopover: React.FC<ReadingThemePopoverProps> = ({
           key={item.id}
           onClick={() => onApplyTheme(item.id)}
           className={`flex items-center justify-between rounded-md border px-3 py-2 text-left text-xs ${
-            item.id === theme.id ? 'border-stone-950 bg-stone-100' : 'border-stone-200 hover:bg-stone-50'
+            item.id === theme.id ? 'border-zinc-950 bg-zinc-100' : 'border-zinc-200 hover:bg-zinc-50'
           }`}
         >
           <span>{item.name}</span>
@@ -4963,12 +5071,12 @@ const ReadingThemePopover: React.FC<ReadingThemePopoverProps> = ({
     </div>
 
     <div className="mt-4 space-y-3">
-      <label className="block text-xs font-medium text-stone-600">
+      <label className="block text-xs font-medium text-zinc-600">
         {t('format.font')}
         <select
           value={theme.font}
           onChange={(event) => onThemeChange('font', event.target.value as TextFont)}
-          className="mt-1 h-9 w-full rounded-md border border-stone-300 bg-white px-2 text-sm"
+          className="mt-1 h-9 w-full rounded-md border border-zinc-300 bg-white px-2 text-sm"
         >
           <option value="serif">{t('format.serif')}</option>
           <option value="sans">{t('format.sans')}</option>
@@ -4976,12 +5084,12 @@ const ReadingThemePopover: React.FC<ReadingThemePopoverProps> = ({
         </select>
       </label>
 
-      <label className="block text-xs font-medium text-stone-600">
+      <label className="block text-xs font-medium text-zinc-600">
         {t('format.alignment')}
         <select
           value={theme.textAlign}
           onChange={(event) => onThemeChange('textAlign', event.target.value as TextAlignment)}
-          className="mt-1 h-9 w-full rounded-md border border-stone-300 bg-white px-2 text-sm"
+          className="mt-1 h-9 w-full rounded-md border border-zinc-300 bg-white px-2 text-sm"
         >
           <option value="left">{t('format.left')}</option>
           <option value="center">{t('format.center')}</option>
@@ -5019,7 +5127,7 @@ interface ThemeRangeProps {
 }
 
 const ThemeRange: React.FC<ThemeRangeProps> = ({ label, value, min, max, step, onChange }) => (
-  <label className="block text-xs font-medium text-stone-600">
+  <label className="block text-xs font-medium text-zinc-600">
     <span className="flex justify-between">
       {label}
       <span>{Number.isInteger(value) ? value : value.toFixed(2)}</span>
@@ -5031,7 +5139,7 @@ const ThemeRange: React.FC<ThemeRangeProps> = ({ label, value, min, max, step, o
       step={step}
       value={value}
       onChange={(event) => onChange(Number(event.target.value))}
-      className="mt-1 w-full accent-stone-950"
+      className="mt-1 w-full accent-blue-950"
     />
   </label>
 );
@@ -5043,9 +5151,9 @@ interface ThemeColorProps {
 }
 
 const ThemeColor: React.FC<ThemeColorProps> = ({ label, value, onChange }) => (
-  <label className="block text-xs font-medium text-stone-600">
+  <label className="block text-xs font-medium text-zinc-600">
     {label}
-    <span className="mt-1 flex h-9 items-center gap-2 rounded-md border border-stone-300 bg-white px-2">
+    <span className="mt-1 flex h-9 items-center gap-2 rounded-md border border-zinc-300 bg-white px-2">
       <input type="color" value={value} onChange={(event) => onChange(event.target.value)} className="h-6 w-8 border-0 bg-transparent p-0" />
       <span className="font-mono text-xs">{value}</span>
     </span>
@@ -5078,7 +5186,7 @@ const HoverableLlmResponse: React.FC<HoverableLlmResponseProps> = ({ text, ancho
             key={`${part.text}-${index}`}
             onMouseEnter={() => onHoverSource(part.anchor?.sourceText || '')}
             onMouseLeave={() => onHoverSource('')}
-            className="cursor-default rounded-sm bg-amber-100 px-0.5 text-stone-950"
+            className="cursor-default rounded-sm bg-yellow-100 px-0.5 text-zinc-950"
           >
             {part.text}
           </span>
