@@ -66,6 +66,8 @@ export interface EmbeddedPdfAnnotation {
   author?: string;
   color?: string;
   modifiedAt?: string;
+  bookId?: string;
+  bookTitle?: string;
 }
 
 export interface TranslatedSegment extends SourceSegment {

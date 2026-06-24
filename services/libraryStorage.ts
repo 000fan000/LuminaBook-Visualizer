@@ -105,6 +105,45 @@ export const updateBookMetadataInLibrary = async (bookId: string, metadata: Book
   });
 };
 
+export const updateBookContentInLibrary = async (book: UploadedBook) => {
+  const db = await openLibraryDb();
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(book.id);
+
+    request.onsuccess = () => {
+      const record = request.result as StoredBook | undefined;
+
+      if (!record) {
+        transaction.abort();
+        reject(new Error('Saved book could not be found.'));
+        return;
+      }
+
+      const { sourceUrl: _sourceUrl, ...bookRecord } = book;
+
+      store.put({
+        ...record,
+        ...bookRecord,
+        sourceBlob: record.sourceBlob,
+        sourceData: bookRecord.sourceData || record.sourceData,
+      });
+    };
+    request.onerror = () => reject(request.error || new Error('Could not load the saved book.'));
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error || new Error('Could not update the saved book.'));
+    };
+    transaction.onabort = () => db.close();
+  });
+};
+
 export const loadBooksFromLibrary = async (): Promise<UploadedBook[]> => {
   try {
     const records = await runStoreRequest<StoredBook[]>('readonly', (store) => store.getAll());

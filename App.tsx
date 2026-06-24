@@ -37,6 +37,7 @@ import {
   deleteBookFromLibrary,
   loadBooksFromLibrary,
   saveBookToLibrary,
+  updateBookContentInLibrary,
   updateBookMetadataInLibrary,
 } from './services/libraryStorage';
 import {
@@ -562,6 +563,19 @@ const App: React.FC = () => {
         : [],
     [book, activeSegment, knowledgeCards],
   );
+  const bookPdfAnnotations = useMemo(
+    () =>
+      book
+        ? book.segments.flatMap((segment) =>
+            (segment.pdfAnnotations || []).map((annotation) => ({
+              ...annotation,
+              bookId: annotation.bookId || book.id,
+              bookTitle: annotation.bookTitle || book.title,
+            })),
+          )
+        : [],
+    [book],
+  );
   const activeNote = useMemo(
     () =>
       book && activeSegment
@@ -898,7 +912,7 @@ const App: React.FC = () => {
     const restoreLibrary = async () => {
       setIsLibraryLoading(true);
 
-      const storedBooks = await loadBooksFromLibrary();
+      const storedBooks = (await loadBooksFromLibrary()).map(attachPdfAnnotationBookContext);
 
       if (!cancelled) {
         setBooks((current) => {
@@ -1097,7 +1111,7 @@ const App: React.FC = () => {
 
       for (const file of uploads) {
         setStatusMessage(`Extracting ${file.name}...`);
-        const parsed = await parseBookFile(file);
+        const parsed = attachPdfAnnotationBookContext(await parseBookFile(file));
         await saveBookToLibrary(parsed, file);
         parsedBooks.push(parsed);
       }
@@ -1203,7 +1217,21 @@ const App: React.FC = () => {
     try {
       await updateBookMetadataInLibrary(bookId, normalizedMetadata);
       setBooks((current) =>
-        current.map((item) => (item.id === bookId ? { ...item, ...normalizedMetadata } : item)),
+        current.map((item) =>
+          item.id === bookId
+            ? {
+                ...item,
+                ...normalizedMetadata,
+                segments: item.segments.map((segment) => ({
+                  ...segment,
+                  pdfAnnotations: segment.pdfAnnotations?.map((annotation) => ({
+                    ...annotation,
+                    bookTitle: normalizedMetadata.title,
+                  })),
+                })),
+              }
+            : item,
+        ),
       );
 
       if (normalizedMetadata.title !== targetBook.title) {
@@ -1531,6 +1559,47 @@ const App: React.FC = () => {
     setStatusMessage('Highlight deleted.');
   };
 
+  const deletePdfAnnotation = async (annotationId: string) => {
+    if (!book) {
+      return;
+    }
+
+    let removed = false;
+    const nextBook = attachPdfAnnotationBookContext({
+      ...book,
+      segments: book.segments.map((segment) => {
+        const nextAnnotations = (segment.pdfAnnotations || []).filter((annotation) => {
+          const shouldKeep = annotation.id !== annotationId;
+
+          if (!shouldKeep) {
+            removed = true;
+          }
+
+          return shouldKeep;
+        });
+
+        return nextAnnotations.length === (segment.pdfAnnotations || []).length
+          ? segment
+          : { ...segment, pdfAnnotations: nextAnnotations };
+      }),
+    });
+
+    if (!removed) {
+      return;
+    }
+
+    setBooks((current) => current.map((item) => (item.id === book.id ? nextBook : item)));
+
+    try {
+      await updateBookContentInLibrary(nextBook);
+      setStatusMessage('Imported PDF annotation removed.');
+      setErrorMessage('');
+    } catch (error) {
+      setBooks((current) => current.map((item) => (item.id === book.id ? book : item)));
+      setErrorMessage(error instanceof Error ? error.message : 'Could not remove the imported PDF annotation.');
+    }
+  };
+
   const deleteKnowledgeCard = (cardId: string) => {
     setKnowledgeCards((current) => current.filter((card) => card.id !== cardId));
     setStatusMessage('Knowledge card deleted.');
@@ -1728,12 +1797,14 @@ const App: React.FC = () => {
         organizedHighlights={organizedHighlightsByBook[book.id] || null}
         isOrganizingHighlights={isOrganizingHighlights}
         knowledgeCards={activeKnowledgeCards}
+        bookPdfAnnotations={bookPdfAnnotations}
         onToggleBookmark={toggleBookmark}
         onAddHighlight={addHighlight}
         onCreateKnowledgeCard={createKnowledgeCard}
         onDefineSelection={defineSelection}
         isDefiningSelection={isDefiningSelection}
         onDeleteHighlight={deleteHighlight}
+        onDeletePdfAnnotation={deletePdfAnnotation}
         onOrganizeHighlights={organizeBookHighlights}
         onDeleteKnowledgeCard={deleteKnowledgeCard}
         rightPaneMode={rightPaneMode}
@@ -2430,12 +2501,14 @@ interface ReaderViewProps {
   organizedHighlights: HighlightOrganization | null;
   isOrganizingHighlights: boolean;
   knowledgeCards: KnowledgeCard[];
+  bookPdfAnnotations: EmbeddedPdfAnnotation[];
   onToggleBookmark: () => void;
   onAddHighlight: (pageSide: Highlight['pageSide'], selectedText?: string) => void;
   onCreateKnowledgeCard: (pageSide: Highlight['pageSide']) => void;
   onDefineSelection: (pageSide: Highlight['pageSide'], selectedText: string) => void;
   isDefiningSelection: boolean;
   onDeleteHighlight: (highlightId: string) => void;
+  onDeletePdfAnnotation: (annotationId: string) => void;
   onOrganizeHighlights: () => void;
   onDeleteKnowledgeCard: (cardId: string) => void;
   rightPaneMode: RightPaneMode;
@@ -2516,12 +2589,14 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   organizedHighlights,
   isOrganizingHighlights,
   knowledgeCards,
+  bookPdfAnnotations,
   onToggleBookmark,
   onAddHighlight,
   onCreateKnowledgeCard,
   onDefineSelection,
   isDefiningSelection,
   onDeleteHighlight,
+  onDeletePdfAnnotation,
   onOrganizeHighlights,
   onDeleteKnowledgeCard,
   rightPaneMode,
@@ -2771,6 +2846,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             </button>
           </div>
           <RightReaderPane
+            book={book}
             motherLanguage={motherLanguage}
             activeTranslation={activeTranslation}
             sourceText={activeSegment.sourceText}
@@ -2792,6 +2868,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             isOrganizingHighlights={isOrganizingHighlights}
             knowledgeCards={knowledgeCards}
             pdfAnnotations={activeSegment.pdfAnnotations || []}
+            bookPdfAnnotations={bookPdfAnnotations}
             onModeChange={onRightPaneModeChange}
             onGoToSegment={onGoToSegment}
             onHoverNoteSource={onHoverNoteSource}
@@ -2803,6 +2880,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             isDefiningSelection={isDefiningSelection}
             onCreateKnowledgeCard={() => onCreateKnowledgeCard('translation')}
             onDeleteHighlight={onDeleteHighlight}
+            onDeletePdfAnnotation={onDeletePdfAnnotation}
             onOrganizeHighlights={onOrganizeHighlights}
             onDeleteKnowledgeCard={onDeleteKnowledgeCard}
             onNoteChange={onNoteChange}
@@ -3587,10 +3665,86 @@ const groupPdfAnnotationsByColor = (annotations: EmbeddedPdfAnnotation[]) => {
   return Array.from(grouped.entries())
     .map(([color, items]) => ({
       color,
-      items: items.sort((a, b) => a.pageNumber - b.pageNumber || a.id.localeCompare(b.id)),
+      items: items.sort(
+        (a, b) =>
+          (b.modifiedAt || '').localeCompare(a.modifiedAt || '') ||
+          a.pageNumber - b.pageNumber ||
+          a.id.localeCompare(b.id),
+      ),
     }))
     .sort((a, b) => b.items.length - a.items.length || getPdfAnnotationColorLabel(a.color).localeCompare(getPdfAnnotationColorLabel(b.color)));
 };
+
+interface ExtractedPdfAnnotationEntry {
+  id: string;
+  bookId: string;
+  bookTitle: string;
+  pageNumber: number;
+  kind: EmbeddedPdfAnnotation['kind'];
+  color?: string;
+  author?: string;
+  modifiedAt?: string;
+  text: string;
+  note?: string;
+}
+
+const formatAnnotationDate = (value?: string) => {
+  if (!value) {
+    return '';
+  }
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  const dateLabel = new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(parsed);
+  const timeLabel = new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(parsed);
+
+  return `${dateLabel} · ${timeLabel}`;
+};
+
+const buildExtractedPdfAnnotationEntries = (book: UploadedBook, annotations: EmbeddedPdfAnnotation[]): ExtractedPdfAnnotationEntry[] =>
+  annotations
+    .map((annotation) => ({
+      id: annotation.id,
+      bookId: annotation.bookId || book.id,
+      bookTitle: annotation.bookTitle || book.title,
+      pageNumber: annotation.pageNumber,
+      kind: annotation.kind,
+      color: annotation.color,
+      author: annotation.author,
+      modifiedAt: annotation.modifiedAt,
+      text: annotation.text,
+      note: annotation.note,
+    }))
+    .sort(
+      (a, b) =>
+        (b.modifiedAt || '').localeCompare(a.modifiedAt || '') ||
+        a.pageNumber - b.pageNumber ||
+        a.id.localeCompare(b.id),
+    );
+
+const attachPdfAnnotationBookContext = (book: UploadedBook): UploadedBook => ({
+  ...book,
+  segments: book.segments.map((segment) => ({
+    ...segment,
+    pdfAnnotations: segment.pdfAnnotations?.map((annotation) => ({
+      ...annotation,
+      bookId: book.id,
+      bookTitle: book.title,
+    })),
+  })),
+});
 
 const getReaderMarkPhrases = (mark: ReaderMark) =>
   Array.from(new Set([mark.text.trim(), ...mark.text.split(/\r?\n/).map((line) => line.trim())]))
@@ -3816,6 +3970,7 @@ const BookPage: React.FC<BookPageProps> = ({
 };
 
 interface RightReaderPaneProps {
+  book: UploadedBook;
   motherLanguage: string;
   activeTranslation: TranslatedSegment | null;
   sourceText: string;
@@ -3837,6 +3992,7 @@ interface RightReaderPaneProps {
   isOrganizingHighlights: boolean;
   knowledgeCards: KnowledgeCard[];
   pdfAnnotations: EmbeddedPdfAnnotation[];
+  bookPdfAnnotations: EmbeddedPdfAnnotation[];
   onModeChange: (mode: RightPaneMode) => void;
   onGoToSegment: (segmentIndex: number) => void;
   onHoverNoteSource: (text: string) => void;
@@ -3848,6 +4004,7 @@ interface RightReaderPaneProps {
   onDefineSelection: (selectedText: string) => void;
   isDefiningSelection: boolean;
   onDeleteHighlight: (highlightId: string) => void;
+  onDeletePdfAnnotation: (annotationId: string) => void;
   onOrganizeHighlights: () => void;
   onDeleteKnowledgeCard: (cardId: string) => void;
   onNoteChange: (body: string) => void;
@@ -3859,6 +4016,7 @@ interface RightReaderPaneProps {
 }
 
 const RightReaderPane: React.FC<RightReaderPaneProps> = ({
+  book,
   motherLanguage,
   activeTranslation,
   sourceText,
@@ -3880,6 +4038,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   isOrganizingHighlights,
   knowledgeCards,
   pdfAnnotations,
+  bookPdfAnnotations,
   onModeChange,
   onGoToSegment,
   onHoverNoteSource,
@@ -3891,6 +4050,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   onDefineSelection,
   isDefiningSelection,
   onDeleteHighlight,
+  onDeletePdfAnnotation,
   onOrganizeHighlights,
   onDeleteKnowledgeCard,
   onNoteChange,
@@ -3988,12 +4148,15 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
       <div className="min-h-0 flex-1 overflow-auto pr-2">
         {mode === 'annotations' && (
           <AnnotationWorkspace
+            book={book}
             highlights={bookHighlights}
+            pdfAnnotations={bookPdfAnnotations}
             organizedHighlights={organizedHighlights}
             isOrganizingHighlights={isOrganizingHighlights}
             onOrganizeHighlights={onOrganizeHighlights}
             onGoToSegment={onGoToSegment}
             onDeleteHighlight={onDeleteHighlight}
+            onDeletePdfAnnotation={onDeletePdfAnnotation}
           />
         )}
         {mode === 'argument' && (
@@ -4006,7 +4169,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
           <ConceptWorkspace activeTranslation={activeTranslation} knowledgeCards={knowledgeCards} pdfAnnotations={pdfAnnotations} />
         )}
         {mode === 'history' && (
-          <HistoryWorkspace highlights={highlights} knowledgeCards={knowledgeCards} pdfAnnotations={pdfAnnotations} note={note} />
+          <HistoryWorkspace book={book} highlights={highlights} knowledgeCards={knowledgeCards} pdfAnnotations={pdfAnnotations} note={note} />
         )}
         {mode === 'assistant' && (
           <InlineReadingAssistant
@@ -4022,12 +4185,15 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
 };
 
 interface AnnotationWorkspaceProps {
+  book: UploadedBook;
   highlights: BookHighlightItem[];
+  pdfAnnotations: EmbeddedPdfAnnotation[];
   organizedHighlights: HighlightOrganization | null;
   isOrganizingHighlights: boolean;
   onOrganizeHighlights: () => void;
   onGoToSegment: (segmentIndex: number) => void;
   onDeleteHighlight: (highlightId: string) => void;
+  onDeletePdfAnnotation: (annotationId: string) => void;
 }
 
 const WorkspaceEmptyState: React.FC<{ title: string; body: string }> = ({ title, body }) => (
@@ -4038,26 +4204,45 @@ const WorkspaceEmptyState: React.FC<{ title: string; body: string }> = ({ title,
 );
 
 const AnnotationWorkspace: React.FC<AnnotationWorkspaceProps> = ({
+  book,
   highlights,
+  pdfAnnotations,
   organizedHighlights,
   isOrganizingHighlights,
   onOrganizeHighlights,
   onGoToSegment,
   onDeleteHighlight,
+  onDeletePdfAnnotation,
 }) => {
   const highlightById = useMemo(
     () => new Map(highlights.map((highlight) => [highlight.id, highlight])),
     [highlights],
   );
   const topics = organizedHighlights?.topics || [];
+  const extractedPdfAnnotations = useMemo(
+    () => buildExtractedPdfAnnotationEntries(book, pdfAnnotations),
+    [book, pdfAnnotations],
+  );
+  const pdfAnnotationGroups = useMemo(
+    () =>
+      groupPdfAnnotationsByColor(extractedPdfAnnotations).map((group) => ({
+        ...group,
+        items: group.items.map((item) => ({
+          ...item,
+          bookTitle: item.bookTitle || book.title,
+          bookId: item.bookId || book.id,
+        })),
+      })),
+    [book, extractedPdfAnnotations],
+  );
 
   return (
     <div className="space-y-5">
       <section className="rounded-md border border-zinc-200 bg-white p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Highlights</p>
-            <p className="mt-1 text-sm leading-6 text-zinc-600">All saved highlights in this book, across original and translation pages.</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Highlight organization</p>
+            <p className="mt-1 text-sm leading-6 text-zinc-600">Use saved highlights as source material for LLM-based grouping and synthesis.</p>
           </div>
           <button
             type="button"
@@ -4072,6 +4257,9 @@ const AnnotationWorkspace: React.FC<AnnotationWorkspaceProps> = ({
         {organizedHighlights?.overview && (
           <p className="mt-4 rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-sm leading-6 text-blue-950">{organizedHighlights.overview}</p>
         )}
+        {!organizedHighlights && (
+          <p className="mt-4 text-xs leading-5 text-zinc-500">{highlights.length} highlight{highlights.length === 1 ? '' : 's'} available for organization.</p>
+        )}
       </section>
 
       {topics.length > 0 && (
@@ -4085,13 +4273,20 @@ const AnnotationWorkspace: React.FC<AnnotationWorkspaceProps> = ({
                   <div>
                     <p className="text-sm font-semibold text-zinc-950">{topic.title}</p>
                     {topic.summary && <p className="mt-1 text-xs leading-5 text-zinc-600">{topic.summary}</p>}
+                    {topicHighlights.length > 0 && (
+                      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                        {topicHighlights.map((highlight, referenceIndex) => (
+                          <TopicReferenceMarker
+                            key={highlight.id}
+                            highlight={highlight}
+                            referenceNumber={referenceIndex + 1}
+                            onGoToSegment={onGoToSegment}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-500">{topicHighlights.length}</span>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {topicHighlights.map((highlight) => (
-                    <HighlightRow key={highlight.id} highlight={highlight} onGoToSegment={onGoToSegment} onDeleteHighlight={onDeleteHighlight} />
-                  ))}
                 </div>
               </div>
             );
@@ -4099,13 +4294,65 @@ const AnnotationWorkspace: React.FC<AnnotationWorkspaceProps> = ({
         </section>
       )}
 
-      <section className="space-y-2">
-        {highlights.length > 0 ? (
-          highlights.map((highlight) => (
-            <HighlightRow key={highlight.id} highlight={highlight} onGoToSegment={onGoToSegment} onDeleteHighlight={onDeleteHighlight} />
-          ))
+      <section className="rounded-md border border-zinc-200 bg-white p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Imported PDF notes</p>
+            <p className="mt-1 text-sm leading-6 text-zinc-600">Whole-book highlights and notes extracted from the source PDF, grouped by color and preserved with date, page, and source metadata.</p>
+          </div>
+          <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-500">{extractedPdfAnnotations.length}</span>
+        </div>
+        {pdfAnnotationGroups.length > 0 ? (
+          <div className="mt-4 space-y-4">
+            {pdfAnnotationGroups.map((group) => (
+              <div key={group.color} className="rounded-md border border-zinc-200 bg-[#f9fafb] p-3">
+                <div className="flex items-center justify-between gap-3 border-b border-zinc-200 pb-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="h-3.5 w-3.5 shrink-0 rounded-full border border-zinc-300"
+                      style={{ backgroundColor: group.color === 'uncolored' ? '#ffffff' : group.color }}
+                    />
+                    <p className="truncate text-xs font-semibold text-zinc-900">{getPdfAnnotationColorLabel(group.color)}</p>
+                  </div>
+                  <span className="text-[10px] text-zinc-400">{group.items.length}</span>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {group.items.map((annotation) => (
+                    <div key={annotation.id} className="rounded-sm border border-zinc-200 bg-white px-3 py-3 text-xs leading-5 text-zinc-700">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-zinc-500">
+                          <span className="font-semibold text-zinc-800">{PDF_ANNOTATION_LABELS[annotation.kind]}</span>
+                          <span>{annotation.bookTitle}</span>
+                          <span>p. {annotation.pageNumber}</span>
+                          {annotation.modifiedAt && <span>{formatAnnotationDate(annotation.modifiedAt)}</span>}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onDeletePdfAnnotation(annotation.id)}
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-red-700"
+                          title="Remove imported annotation"
+                          aria-label="Remove imported annotation"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {annotation.text && (
+                        <p className="mt-2 rounded-sm px-2 py-1 font-serif text-sm text-zinc-950" style={{ backgroundColor: group.color === 'uncolored' ? '#f4f4f5' : `${group.color}55` }}>
+                          {annotation.text}
+                        </p>
+                      )}
+                      {annotation.note && <p className="mt-2 whitespace-pre-wrap text-zinc-600">{annotation.note}</p>}
+                      {annotation.author && <p className="mt-2 text-[10px] text-zinc-400">{annotation.author}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
-          <WorkspaceEmptyState title="No highlights yet" body="Highlight passages in the original or translation pane to build a book-level annotation index." />
+          <div className="mt-4">
+            <WorkspaceEmptyState title="No imported PDF notes" body="This page group does not contain embedded highlights or note annotations from the source PDF." />
+          </div>
         )}
       </section>
     </div>
@@ -4137,7 +4384,33 @@ const HighlightRow: React.FC<{
       >
         <Trash2 className="h-3.5 w-3.5" />
       </button>
-    )}
+  )}
+</div>
+);
+
+const TopicReferenceMarker: React.FC<{
+  highlight: BookHighlightItem;
+  referenceNumber: number;
+  onGoToSegment: (segmentIndex: number) => void;
+}> = ({ highlight, referenceNumber, onGoToSegment }) => (
+  <div className="group relative">
+    <button
+      type="button"
+      onClick={() => onGoToSegment(highlight.segmentIndex)}
+      className="flex h-5 min-w-5 items-center justify-center rounded-full border border-zinc-300 bg-[#f2f2f7] px-1.5 align-super text-[10px] font-semibold text-zinc-600 transition hover:border-[#007aff] hover:bg-[#eaf3ff] hover:text-[#007aff]"
+      aria-label={`Reference ${referenceNumber}: jump to page`}
+      title="Jump to source page"
+    >
+      {referenceNumber}
+    </button>
+    <div className="pointer-events-none absolute left-0 top-7 z-20 w-72 rounded-md border border-zinc-200 bg-white p-3 text-left opacity-0 shadow-[0_16px_36px_rgba(0,0,0,0.12)] transition group-hover:opacity-100 group-focus-within:opacity-100">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-zinc-500">
+        <span className="font-semibold text-zinc-800">Ref {referenceNumber}</span>
+        <span>{highlight.pageSide === 'translation' ? 'Translation' : highlight.source === 'pdf' ? 'PDF' : 'Original'}</span>
+        <span>p. {highlight.pageNumber || highlight.segmentIndex + 1}</span>
+      </div>
+      <p className="mt-2 font-serif text-sm leading-6 text-zinc-900">{highlight.text}</p>
+    </div>
   </div>
 );
 
@@ -4253,15 +4526,22 @@ const ConceptWorkspace: React.FC<{
 };
 
 const HistoryWorkspace: React.FC<{
+  book: UploadedBook;
   highlights: Highlight[];
   knowledgeCards: KnowledgeCard[];
   pdfAnnotations: EmbeddedPdfAnnotation[];
   note: ReaderNote | null;
-}> = ({ highlights, knowledgeCards, pdfAnnotations, note }) => {
+}> = ({ book, highlights, knowledgeCards, pdfAnnotations, note }) => {
+  const extractedPdfAnnotations = buildExtractedPdfAnnotationEntries(book, pdfAnnotations);
   const events = [
     ...highlights.map((highlight) => ({ id: highlight.id, label: 'Highlight saved', time: highlight.createdAt, body: highlight.text })),
     ...knowledgeCards.map((card) => ({ id: card.id, label: 'Knowledge card saved', time: card.createdAt, body: card.excerpt })),
-    ...pdfAnnotations.map((annotation) => ({ id: annotation.id, label: PDF_ANNOTATION_LABELS[annotation.kind], time: annotation.modifiedAt || '', body: annotation.text || annotation.note || '' })),
+    ...extractedPdfAnnotations.map((annotation) => ({
+      id: annotation.id,
+      label: PDF_ANNOTATION_LABELS[annotation.kind],
+      time: annotation.modifiedAt || '',
+      body: [annotation.bookTitle, `p. ${annotation.pageNumber}`, annotation.text, annotation.note].filter(Boolean).join('\n'),
+    })),
     ...(note ? [{ id: note.id, label: 'Reader note updated', time: note.updatedAt, body: note.body }] : []),
   ].sort((a, b) => (b.time || '').localeCompare(a.time || ''));
 
@@ -4270,8 +4550,8 @@ const HistoryWorkspace: React.FC<{
       {events.map((event) => (
         <div key={`${event.label}-${event.id}`} className="border-l-2 border-zinc-300 pl-3 text-sm leading-6">
           <p className="font-semibold text-zinc-900">{event.label}</p>
-          {event.time && <p className="text-[11px] text-zinc-400">{event.time}</p>}
-          <p className="mt-1 text-xs leading-5 text-zinc-600">{event.body}</p>
+          {event.time && <p className="text-[11px] text-zinc-400">{formatAnnotationDate(event.time) || event.time}</p>}
+          <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-600">{event.body}</p>
         </div>
       ))}
     </div>
@@ -4637,6 +4917,10 @@ const GuideView: React.FC<GuideViewProps> = ({
                       <div className="flex items-center justify-between gap-3">
                         <p className="font-semibold text-zinc-800">{PDF_ANNOTATION_LABELS[annotation.kind]}</p>
                         <span className="shrink-0 text-[10px] text-zinc-400">p. {annotation.pageNumber}</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-zinc-400">
+                        {annotation.bookTitle && <span>{annotation.bookTitle}</span>}
+                        {annotation.modifiedAt && <span>{formatAnnotationDate(annotation.modifiedAt)}</span>}
                       </div>
                       {annotation.text && (
                         <p className="mt-2 rounded-sm px-2 py-1 font-serif text-zinc-950" style={{ backgroundColor: group.color === 'uncolored' ? '#f4f4f5' : `${group.color}55` }}>

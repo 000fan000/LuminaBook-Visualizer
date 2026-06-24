@@ -714,6 +714,36 @@ const readPdfString = (value: unknown) => {
   return normalizeWhitespace(String(value));
 };
 
+const normalizePdfDate = (value: string) => {
+  const normalized = value.trim();
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(normalized)) {
+    return normalized;
+  }
+
+  const match = normalized.match(
+    /^D:(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?(Z|[+\-]\d{2}'?\d{2}'?)?$/,
+  );
+
+  if (!match) {
+    return normalized;
+  }
+
+  const [, year, month, day, hour = '00', minute = '00', second = '00', zone = 'Z'] = match;
+  const normalizedZone =
+    zone === 'Z'
+      ? 'Z'
+      : `${zone.slice(0, 3)}:${zone.replace(/'/g, '').slice(3, 5)}`;
+  const isoLike = `${year}-${month}-${day}T${hour}:${minute}:${second}${normalizedZone}`;
+  const parsed = new Date(isoLike);
+
+  return Number.isNaN(parsed.getTime()) ? normalized : parsed.toISOString();
+};
+
 const getPdfAnnotationKind = (subtype: string): EmbeddedPdfAnnotationKind => {
   switch (subtype) {
     case 'Highlight':
@@ -870,7 +900,7 @@ const readPdfPageAnnotations = async (page: any, pageNumber: number): Promise<Em
       note: note || undefined,
       author: readPdfString(annotation.titleObj || annotation.title) || undefined,
       color: getPdfAnnotationColor(annotation),
-      modifiedAt: readPdfString(annotation.modificationDate || annotation.modifiedAt) || undefined,
+      modifiedAt: normalizePdfDate(readPdfString(annotation.modificationDate || annotation.modifiedAt)) || undefined,
     });
   }
 
