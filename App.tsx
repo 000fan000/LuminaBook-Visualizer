@@ -46,11 +46,11 @@ import {
   loadLlmEvaluationRecords,
 } from './services/llmEvaluationStorage';
 import {
+  extractArgumentConcepts,
   converseWithReadingAgent,
   DEFAULT_SYSTEM_PROMPT,
   defineSelectedText,
   detectBookMetadata,
-  organizeHighlights,
   PLATFORM_PROVIDER_ID,
   PLATFORM_PROVIDER_LABEL,
   PLATFORM_PROVIDER_MODEL,
@@ -63,11 +63,11 @@ import { renderPdfPageToCanvas } from './services/pdfRenderer';
 import { hasDesktopProfileStore, loadDesktopLlmProfiles, saveDesktopLlmProfiles } from './platform';
 import { DISPLAY_LANGUAGES } from './i18n';
 import {
+  ArgumentConceptMap,
   Bookmark,
   BookMetadata,
   EmbeddedPdfAnnotation,
   Highlight,
-  HighlightOrganization,
   HighlightOrganizationInput,
   KnowledgeCard,
   LlmAnnotation,
@@ -178,7 +178,7 @@ const STORAGE_KEYS = {
 
 type TextAlignment = 'left' | 'center' | 'justify';
 type TextFont = 'serif' | 'sans' | 'mono';
-type RightPaneMode = 'translation' | 'annotations' | 'argument' | 'links' | 'concepts' | 'history' | 'assistant';
+type RightPaneMode = 'translation' | 'annotations' | 'argument';
 
 interface ReadingAgentMessage {
   role: 'user' | 'assistant';
@@ -467,8 +467,8 @@ const App: React.FC = () => {
   const [isRespondingToNote, setIsRespondingToNote] = useState(false);
   const [isReadingAgentResponding, setIsReadingAgentResponding] = useState(false);
   const [isDefiningSelection, setIsDefiningSelection] = useState(false);
-  const [isOrganizingHighlights, setIsOrganizingHighlights] = useState(false);
-  const [organizedHighlightsByBook, setOrganizedHighlightsByBook] = useState<Record<string, HighlightOrganization>>({});
+  const [isExtractingArgumentConcepts, setIsExtractingArgumentConcepts] = useState(false);
+  const [argumentConceptsByBook, setArgumentConceptsByBook] = useState<Record<string, ArgumentConceptMap>>({});
   const [readingAgentMessages, setReadingAgentMessages] = useState<ReadingAgentMessage[]>([]);
   const [llmRequestStartedAt, setLlmRequestStartedAt] = useState<number | null>(null);
   const [llmElapsedSeconds, setLlmElapsedSeconds] = useState(0);
@@ -1605,33 +1605,33 @@ const App: React.FC = () => {
     setStatusMessage('Knowledge card deleted.');
   };
 
-  const organizeBookHighlights = async () => {
-    if (!book || isOrganizingHighlights) {
+  const extractBookArgumentConcepts = async () => {
+    if (!book || isExtractingArgumentConcepts) {
       return;
     }
 
     if (!bookHighlights.length) {
-      setStatusMessage('Add highlights before organizing them.');
+      setStatusMessage('Add highlights before extracting concepts.');
       return;
     }
 
     persistActiveLlmProfile();
-    setIsOrganizingHighlights(true);
+    setIsExtractingArgumentConcepts(true);
     setLlmRequestStartedAt(Date.now());
     setErrorMessage('');
 
     try {
-      const organization = await organizeHighlights(bookHighlights, book, motherLanguage, settings);
-      setOrganizedHighlightsByBook((current) => ({
+      const concepts = await extractArgumentConcepts(bookHighlights, book, motherLanguage, settings);
+      setArgumentConceptsByBook((current) => ({
         ...current,
-        [book.id]: organization,
+        [book.id]: concepts,
       }));
-      setStatusMessage('Highlights organized by topic.');
+      setStatusMessage('Argument concepts extracted.');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Highlight organization failed.');
+      setErrorMessage(error instanceof Error ? error.message : 'Argument concept extraction failed.');
       setStatusMessage('');
     } finally {
-      setIsOrganizingHighlights(false);
+      setIsExtractingArgumentConcepts(false);
       setLlmRequestStartedAt(null);
       refreshEvaluationRecords();
     }
@@ -1794,8 +1794,8 @@ const App: React.FC = () => {
         isBookmarked={isBookmarked}
         highlights={activeHighlights}
         bookHighlights={bookHighlights}
-        organizedHighlights={organizedHighlightsByBook[book.id] || null}
-        isOrganizingHighlights={isOrganizingHighlights}
+        argumentConcepts={argumentConceptsByBook[book.id] || null}
+        isExtractingArgumentConcepts={isExtractingArgumentConcepts}
         knowledgeCards={activeKnowledgeCards}
         bookPdfAnnotations={bookPdfAnnotations}
         onToggleBookmark={toggleBookmark}
@@ -1805,7 +1805,7 @@ const App: React.FC = () => {
         isDefiningSelection={isDefiningSelection}
         onDeleteHighlight={deleteHighlight}
         onDeletePdfAnnotation={deletePdfAnnotation}
-        onOrganizeHighlights={organizeBookHighlights}
+        onExtractArgumentConcepts={extractBookArgumentConcepts}
         onDeleteKnowledgeCard={deleteKnowledgeCard}
         rightPaneMode={rightPaneMode}
         onRightPaneModeChange={setRightPaneMode}
@@ -2498,8 +2498,8 @@ interface ReaderViewProps {
   isBookmarked: boolean;
   highlights: Highlight[];
   bookHighlights: BookHighlightItem[];
-  organizedHighlights: HighlightOrganization | null;
-  isOrganizingHighlights: boolean;
+  argumentConcepts: ArgumentConceptMap | null;
+  isExtractingArgumentConcepts: boolean;
   knowledgeCards: KnowledgeCard[];
   bookPdfAnnotations: EmbeddedPdfAnnotation[];
   onToggleBookmark: () => void;
@@ -2509,7 +2509,7 @@ interface ReaderViewProps {
   isDefiningSelection: boolean;
   onDeleteHighlight: (highlightId: string) => void;
   onDeletePdfAnnotation: (annotationId: string) => void;
-  onOrganizeHighlights: () => void;
+  onExtractArgumentConcepts: () => void;
   onDeleteKnowledgeCard: (cardId: string) => void;
   rightPaneMode: RightPaneMode;
   onRightPaneModeChange: (mode: RightPaneMode) => void;
@@ -2586,8 +2586,8 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   isBookmarked,
   highlights,
   bookHighlights,
-  organizedHighlights,
-  isOrganizingHighlights,
+  argumentConcepts,
+  isExtractingArgumentConcepts,
   knowledgeCards,
   bookPdfAnnotations,
   onToggleBookmark,
@@ -2597,7 +2597,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
   isDefiningSelection,
   onDeleteHighlight,
   onDeletePdfAnnotation,
-  onOrganizeHighlights,
+  onExtractArgumentConcepts,
   onDeleteKnowledgeCard,
   rightPaneMode,
   onRightPaneModeChange,
@@ -2864,8 +2864,8 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             onTranslateNext={onTranslateNext}
             highlights={highlights}
             bookHighlights={bookHighlights}
-            organizedHighlights={organizedHighlights}
-            isOrganizingHighlights={isOrganizingHighlights}
+            argumentConcepts={argumentConcepts}
+            isExtractingArgumentConcepts={isExtractingArgumentConcepts}
             knowledgeCards={knowledgeCards}
             pdfAnnotations={activeSegment.pdfAnnotations || []}
             bookPdfAnnotations={bookPdfAnnotations}
@@ -2881,7 +2881,7 @@ const ReaderView: React.FC<ReaderViewProps> = ({
             onCreateKnowledgeCard={() => onCreateKnowledgeCard('translation')}
             onDeleteHighlight={onDeleteHighlight}
             onDeletePdfAnnotation={onDeletePdfAnnotation}
-            onOrganizeHighlights={onOrganizeHighlights}
+            onExtractArgumentConcepts={onExtractArgumentConcepts}
             onDeleteKnowledgeCard={onDeleteKnowledgeCard}
             onNoteChange={onNoteChange}
             onRespondToNote={onRespondToNote}
@@ -3988,8 +3988,8 @@ interface RightReaderPaneProps {
   onTranslateNext: () => void;
   highlights: Highlight[];
   bookHighlights: BookHighlightItem[];
-  organizedHighlights: HighlightOrganization | null;
-  isOrganizingHighlights: boolean;
+  argumentConcepts: ArgumentConceptMap | null;
+  isExtractingArgumentConcepts: boolean;
   knowledgeCards: KnowledgeCard[];
   pdfAnnotations: EmbeddedPdfAnnotation[];
   bookPdfAnnotations: EmbeddedPdfAnnotation[];
@@ -4005,7 +4005,7 @@ interface RightReaderPaneProps {
   isDefiningSelection: boolean;
   onDeleteHighlight: (highlightId: string) => void;
   onDeletePdfAnnotation: (annotationId: string) => void;
-  onOrganizeHighlights: () => void;
+  onExtractArgumentConcepts: () => void;
   onDeleteKnowledgeCard: (cardId: string) => void;
   onNoteChange: (body: string) => void;
   onRespondToNote: () => void;
@@ -4034,8 +4034,8 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   onTranslateNext,
   highlights,
   bookHighlights,
-  organizedHighlights,
-  isOrganizingHighlights,
+  argumentConcepts,
+  isExtractingArgumentConcepts,
   knowledgeCards,
   pdfAnnotations,
   bookPdfAnnotations,
@@ -4051,7 +4051,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   isDefiningSelection,
   onDeleteHighlight,
   onDeletePdfAnnotation,
-  onOrganizeHighlights,
+  onExtractArgumentConcepts,
   onDeleteKnowledgeCard,
   onNoteChange,
   onRespondToNote,
@@ -4064,14 +4064,10 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
   const pageRef = useRef<HTMLElement>(null);
   const modeLabels: Record<RightPaneMode, string> = {
     translation: 'Translation',
-    annotations: 'Annotations',
-    argument: 'Argument',
-    links: 'Links',
-    concepts: 'Concepts',
-    history: 'History',
-    assistant: 'AI',
+    annotations: 'Annotation',
+    argument: 'Arguments',
   };
-  const workspaceModes: RightPaneMode[] = ['translation', 'annotations', 'argument', 'links', 'concepts', 'history', 'assistant'];
+  const workspaceModes: RightPaneMode[] = ['translation', 'annotations', 'argument'];
   const noteAnchors = useMemo(
     () => buildNoteHoverAnchors(note?.llmResponse || '', sourceText),
     [note?.llmResponse, sourceText],
@@ -4149,33 +4145,20 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
         {mode === 'annotations' && (
           <AnnotationWorkspace
             book={book}
-            highlights={bookHighlights}
             pdfAnnotations={bookPdfAnnotations}
-            organizedHighlights={organizedHighlights}
-            isOrganizingHighlights={isOrganizingHighlights}
-            onOrganizeHighlights={onOrganizeHighlights}
-            onGoToSegment={onGoToSegment}
-            onDeleteHighlight={onDeleteHighlight}
             onDeletePdfAnnotation={onDeletePdfAnnotation}
           />
         )}
         {mode === 'argument' && (
-          <ArgumentWorkspace activeTranslation={activeTranslation} highlights={highlights} knowledgeCards={knowledgeCards} />
-        )}
-        {mode === 'links' && (
-          <LinksWorkspace highlights={highlights} knowledgeCards={knowledgeCards} pdfAnnotations={pdfAnnotations} />
-        )}
-        {mode === 'concepts' && (
-          <ConceptWorkspace activeTranslation={activeTranslation} knowledgeCards={knowledgeCards} pdfAnnotations={pdfAnnotations} />
-        )}
-        {mode === 'history' && (
-          <HistoryWorkspace book={book} highlights={highlights} knowledgeCards={knowledgeCards} pdfAnnotations={pdfAnnotations} note={note} />
-        )}
-        {mode === 'assistant' && (
-          <InlineReadingAssistant
-            messages={readingAgentMessages}
-            isResponding={isReadingAgentResponding}
-            onSend={onSendReadingAgentMessage}
+          <ArgumentWorkspace
+            activeTranslation={activeTranslation}
+            highlights={highlights}
+            bookHighlights={bookHighlights}
+            argumentConcepts={argumentConcepts}
+            isExtractingArgumentConcepts={isExtractingArgumentConcepts}
+            onExtractArgumentConcepts={onExtractArgumentConcepts}
+            onGoToSegment={onGoToSegment}
+            knowledgeCards={knowledgeCards}
           />
         )}
       </div>
@@ -4186,13 +4169,7 @@ const RightReaderPane: React.FC<RightReaderPaneProps> = ({
 
 interface AnnotationWorkspaceProps {
   book: UploadedBook;
-  highlights: BookHighlightItem[];
   pdfAnnotations: EmbeddedPdfAnnotation[];
-  organizedHighlights: HighlightOrganization | null;
-  isOrganizingHighlights: boolean;
-  onOrganizeHighlights: () => void;
-  onGoToSegment: (segmentIndex: number) => void;
-  onDeleteHighlight: (highlightId: string) => void;
   onDeletePdfAnnotation: (annotationId: string) => void;
 }
 
@@ -4205,20 +4182,9 @@ const WorkspaceEmptyState: React.FC<{ title: string; body: string }> = ({ title,
 
 const AnnotationWorkspace: React.FC<AnnotationWorkspaceProps> = ({
   book,
-  highlights,
   pdfAnnotations,
-  organizedHighlights,
-  isOrganizingHighlights,
-  onOrganizeHighlights,
-  onGoToSegment,
-  onDeleteHighlight,
   onDeletePdfAnnotation,
 }) => {
-  const highlightById = useMemo(
-    () => new Map(highlights.map((highlight) => [highlight.id, highlight])),
-    [highlights],
-  );
-  const topics = organizedHighlights?.topics || [];
   const extractedPdfAnnotations = useMemo(
     () => buildExtractedPdfAnnotationEntries(book, pdfAnnotations),
     [book, pdfAnnotations],
@@ -4238,62 +4204,6 @@ const AnnotationWorkspace: React.FC<AnnotationWorkspaceProps> = ({
 
   return (
     <div className="space-y-5">
-      <section className="rounded-md border border-zinc-200 bg-white p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Highlight organization</p>
-            <p className="mt-1 text-sm leading-6 text-zinc-600">Use saved highlights as source material for LLM-based grouping and synthesis.</p>
-          </div>
-          <button
-            type="button"
-            onClick={onOrganizeHighlights}
-            disabled={isOrganizingHighlights || highlights.length === 0}
-            className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-[#007aff] px-3 text-xs font-medium text-white hover:bg-[#0066cc] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isOrganizingHighlights ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            Organize
-          </button>
-        </div>
-        {organizedHighlights?.overview && (
-          <p className="mt-4 rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-sm leading-6 text-blue-950">{organizedHighlights.overview}</p>
-        )}
-        {!organizedHighlights && (
-          <p className="mt-4 text-xs leading-5 text-zinc-500">{highlights.length} highlight{highlights.length === 1 ? '' : 's'} available for organization.</p>
-        )}
-      </section>
-
-      {topics.length > 0 && (
-        <section className="space-y-3">
-          {topics.map((topic, index) => {
-            const topicHighlights = topic.highlightIds.map((id) => highlightById.get(id)).filter((highlight): highlight is BookHighlightItem => Boolean(highlight));
-
-            return (
-              <div key={`${topic.title}-${index}`} className="rounded-md border border-zinc-200 bg-white p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-zinc-950">{topic.title}</p>
-                    {topic.summary && <p className="mt-1 text-xs leading-5 text-zinc-600">{topic.summary}</p>}
-                    {topicHighlights.length > 0 && (
-                      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                        {topicHighlights.map((highlight, referenceIndex) => (
-                          <TopicReferenceMarker
-                            key={highlight.id}
-                            highlight={highlight}
-                            referenceNumber={referenceIndex + 1}
-                            onGoToSegment={onGoToSegment}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-500">{topicHighlights.length}</span>
-                </div>
-              </div>
-            );
-          })}
-        </section>
-      )}
-
       <section className="rounded-md border border-zinc-200 bg-white p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -4417,13 +4327,88 @@ const TopicReferenceMarker: React.FC<{
 const ArgumentWorkspace: React.FC<{
   activeTranslation: TranslatedSegment | null;
   highlights: Highlight[];
+  bookHighlights: BookHighlightItem[];
+  argumentConcepts: ArgumentConceptMap | null;
+  isExtractingArgumentConcepts: boolean;
+  onExtractArgumentConcepts: () => void;
+  onGoToSegment: (segmentIndex: number) => void;
   knowledgeCards: KnowledgeCard[];
-}> = ({ activeTranslation, highlights, knowledgeCards }) => {
+}> = ({
+  activeTranslation,
+  highlights,
+  bookHighlights,
+  argumentConcepts,
+  isExtractingArgumentConcepts,
+  onExtractArgumentConcepts,
+  onGoToSegment,
+  knowledgeCards,
+}) => {
   const evidence = highlights.slice(0, 4);
   const assumptions = knowledgeCards.slice(0, 3);
+  const conceptHighlightsById = useMemo(
+    () => new Map(bookHighlights.map((highlight) => [highlight.id, highlight])),
+    [bookHighlights],
+  );
 
   return (
     <div className="space-y-4">
+      <section className="rounded-md border border-zinc-200 bg-white p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Concept extraction</p>
+            <p className="mt-1 text-sm leading-6 text-zinc-600">Build reusable concept nodes from your highlights, with extra weight on short phrases that can connect across documents.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onExtractArgumentConcepts}
+            disabled={isExtractingArgumentConcepts || bookHighlights.length === 0}
+            className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-[#007aff] px-3 text-xs font-medium text-white hover:bg-[#0066cc] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isExtractingArgumentConcepts ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            Extract
+          </button>
+        </div>
+        {argumentConcepts?.overview && (
+          <p className="mt-4 rounded-sm border border-blue-100 bg-blue-50 px-3 py-2 text-sm leading-6 text-blue-950">{argumentConcepts.overview}</p>
+        )}
+        {!argumentConcepts && (
+          <p className="mt-4 text-xs leading-5 text-zinc-500">{bookHighlights.length} highlight{bookHighlights.length === 1 ? '' : 's'} available for concept extraction.</p>
+        )}
+      </section>
+      {argumentConcepts?.concepts?.length ? (
+        <section className="space-y-3">
+          {argumentConcepts.concepts.map((concept, index) => {
+            const conceptHighlights = concept.sourceHighlightIds
+              .map((id) => conceptHighlightsById.get(id))
+              .filter((highlight): highlight is BookHighlightItem => Boolean(highlight));
+
+            return (
+              <div key={`${concept.title}-${index}`} className="rounded-md border border-zinc-200 bg-white p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-950">{concept.title}</p>
+                    {concept.summary && <p className="mt-1 text-xs leading-5 text-zinc-600">{concept.summary}</p>}
+                    {concept.linkHint && <p className="mt-2 text-xs leading-5 text-zinc-500">Link target: {concept.linkHint}</p>}
+                    {conceptHighlights.length > 0 && (
+                      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                        {conceptHighlights.map((highlight, referenceIndex) => (
+                          <TopicReferenceMarker
+                            key={highlight.id}
+                            highlight={highlight}
+                            referenceNumber={referenceIndex + 1}
+                            onGoToSegment={onGoToSegment}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-500">{conceptHighlights.length}</span>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      ) : null}
       <section className="rounded-md border border-zinc-200 bg-white p-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Main Thesis</p>
         <p className="mt-3 text-sm leading-6 text-zinc-700">

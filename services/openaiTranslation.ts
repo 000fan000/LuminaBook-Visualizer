@@ -1,4 +1,5 @@
 import {
+  ArgumentConceptMap,
   BookMetadata,
   Highlight,
   HighlightOrganization,
@@ -194,6 +195,37 @@ const parseHighlightOrganizationContent = (content: string, validHighlightIds: S
   return {
     overview: String(parsed.overview || '').trim(),
     topics,
+  };
+};
+
+const parseArgumentConceptContent = (content: string, validHighlightIds: Set<string>): ArgumentConceptMap => {
+  let parsed: Partial<ArgumentConceptMap>;
+  try {
+    parsed = parseJsonObjectContent<Partial<ArgumentConceptMap>>(content);
+  } catch (error) {
+    console.error('[LuminaBook] Argument concept JSON parse failed.', error);
+    console.error('[LuminaBook] Raw LLM content:', content);
+    throw error;
+  }
+
+  const concepts = Array.isArray(parsed.concepts)
+    ? parsed.concepts
+        .map((concept) => {
+          const title = String(concept?.title || '').trim();
+          const summary = String(concept?.summary || '').trim();
+          const linkHint = String(concept?.linkHint || '').trim();
+          const sourceHighlightIds = Array.isArray(concept?.sourceHighlightIds)
+            ? concept.sourceHighlightIds.map(String).filter((id) => validHighlightIds.has(id))
+            : [];
+
+          return title && sourceHighlightIds.length ? { title, summary, linkHint, sourceHighlightIds } : null;
+        })
+        .filter((concept): concept is ArgumentConceptMap['concepts'][number] => Boolean(concept))
+    : [];
+
+  return {
+    overview: String(parsed.overview || '').trim(),
+    concepts,
   };
 };
 
@@ -978,6 +1010,77 @@ ${JSON.stringify(highlightPayload, null, 2)}`,
   }
 
   return parseHighlightOrganizationContent(content, new Set(highlights.map((highlight) => highlight.id)));
+};
+
+export const extractArgumentConcepts = async (
+  highlights: HighlightOrganizationInput[],
+  book: UploadedBook,
+  motherLanguage: string,
+  settings: LlmSettings,
+): Promise<ArgumentConceptMap> => {
+  if (!hasRequiredSettings(settings)) {
+    throw new Error('Endpoint, API key, and model are required before extracting argument concepts.');
+  }
+
+  const highlightPayload = highlights.map((highlight) => {
+    const segment = book.segments[highlight.segmentIndex];
+
+    return {
+      id: highlight.id,
+      page: highlight.pageNumber || segment?.firstPage || highlight.segmentIndex + 1,
+      segment: highlight.segmentIndex + 1,
+      side: highlight.pageSide,
+      text: highlight.text,
+      shortPhrase: highlight.text.trim().split(/\s+/).length <= 8,
+    };
+  });
+
+  const response = await postChatCompletion(
+    settings,
+    [
+      {
+        role: 'system',
+        content: `You extract portable concepts from a reader's highlights in one book. Prioritize compact phrases, terms, and formulations that can support cross-document linking. Preserve exact highlight IDs. Reply in ${motherLanguage}.`,
+      },
+      {
+        role: 'user',
+        content: `Book: ${book.title}${book.author ? ` by ${book.author}` : ''}
+
+Extract concepts that would help connect this book with other documents. Return JSON with exactly:
+- overview: concise synthesis of the conceptual terrain
+- concepts: array of objects with title, summary, linkHint, sourceHighlightIds
+
+Rules:
+- Use only the supplied highlights.
+- Every sourceHighlightIds value must be copied exactly from the input id fields.
+- Prefer 4 to 10 concepts unless the highlight set is very small.
+- Give extra weight to short-phrase highlights that look like terms, formulas, distinctions, or named concepts.
+- title should be concise and reusable as a cross-document node label.
+- summary should explain the concept's role in this book in 1 or 2 sentences.
+- linkHint should suggest what kind of passage in another document would connect to this concept.
+- Do not include markdown.
+
+Highlights JSON:
+${JSON.stringify(highlightPayload, null, 2)}`,
+      },
+    ],
+    12000,
+    `extract argument concepts ${book.title}`,
+  );
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Argument concept extraction failed (${response.status}): ${detail.slice(0, 500)}`);
+  }
+
+  const data = (await response.json()) as ChatCompletionResponse;
+  const content = data.choices?.[0]?.message?.content;
+
+  if (!content) {
+    throw new Error('Argument concept extraction did not include message content.');
+  }
+
+  return parseArgumentConceptContent(content, new Set(highlights.map((highlight) => highlight.id)));
 };
 
 export const converseWithReadingAgent = async (

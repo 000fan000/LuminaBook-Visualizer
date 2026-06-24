@@ -165,6 +165,18 @@ export interface HighlightOrganization {
   topics: HighlightTopic[];
 }
 
+export interface ArgumentConcept {
+  title: string;
+  summary: string;
+  linkHint: string;
+  sourceHighlightIds: string[];
+}
+
+export interface ArgumentConceptMap {
+  overview: string;
+  concepts: ArgumentConcept[];
+}
+
 export interface HighlightOrganizationInput {
   id: string;
   segmentIndex: number;
