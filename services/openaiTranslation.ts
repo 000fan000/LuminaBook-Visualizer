@@ -96,6 +96,7 @@ const getPlatformOperation = (requestName: string) => {
   if (requestName.startsWith('reading agent')) return 'chat';
   if (requestName.startsWith('define selection')) return 'define';
   if (requestName.startsWith('organize highlights')) return 'organize';
+  if (requestName.startsWith('extract argument concepts')) return 'organize';
   return '';
 };
 
